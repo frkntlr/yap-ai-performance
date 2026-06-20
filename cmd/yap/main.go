@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/frkntlr/yap-ai-performance/internal/backup"
+	"github.com/frkntlr/yap-ai-performance/internal/config"
 	"github.com/frkntlr/yap-ai-performance/internal/confirm"
 	"github.com/frkntlr/yap-ai-performance/internal/detector"
+	"github.com/frkntlr/yap-ai-performance/internal/env"
 	"github.com/frkntlr/yap-ai-performance/internal/gitinfo"
 	"github.com/frkntlr/yap-ai-performance/internal/installer"
 	"github.com/frkntlr/yap-ai-performance/internal/logger"
@@ -32,6 +34,21 @@ var (
 
 
 func main() {
+	cwd, err := os.Getwd()
+	if err == nil {
+		_ = env.Load(cwd)
+	}
+
+	p, err := detector.Detect()
+	var home string
+	if p != nil {
+		home = p.HomeDir
+	}
+	cfg, _ := config.Load(home, cwd)
+	if cfg == nil {
+		cfg = config.NewDefault()
+	}
+
 	var rootCmd = &cobra.Command{
 		Use:   "yap",
 		Short: "Yap AI Performance CLI is a robust cross-platform management tool for MCP servers",
@@ -218,6 +235,60 @@ func main() {
 	rootCmd.AddCommand(proxyCmd)
 	rootCmd.AddCommand(rollbackCmd)
 	rootCmd.AddCommand(contextCmd)
+
+	// Dynamically register alias commands
+	for name, promptTemplate := range cfg.Aliases {
+		aliasName := name
+		aliasPrompt := promptTemplate
+
+		var aliasCmd = &cobra.Command{
+			Use:   aliasName,
+			Short: fmt.Sprintf("Özel kısayol komutu: %s", aliasName),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				projInfo, err := scanner.Scan(cwd)
+				if err != nil {
+					return fmt.Errorf("failed to scan project: %w", err)
+				}
+
+				gitInfo, err := gitinfo.Read(cwd, withDiffFlag)
+				if err != nil {
+					return fmt.Errorf("failed to read git status: %w", err)
+				}
+
+				promptCtx := promptbuilder.PromptContext{
+					Project: projInfo,
+					Git:     gitInfo,
+				}
+				contextPrompt := promptbuilder.Build(promptCtx)
+				fullPrompt := contextPrompt + aliasPrompt + "\n"
+
+				if saveFlag || outFlag != "" {
+					savePath := outFlag
+					if savePath == "" {
+						yapDir := filepath.Join(home, ".yap")
+						if err := os.MkdirAll(yapDir, 0755); err != nil {
+							return fmt.Errorf("failed to create directory %s: %w", yapDir, err)
+						}
+						savePath = filepath.Join(yapDir, "context.md")
+					}
+					if err := os.WriteFile(savePath, []byte(fullPrompt), 0644); err != nil {
+						return fmt.Errorf("failed to write file %s: %w", savePath, err)
+					}
+					fmt.Printf("✓ Kısayol promptu başarıyla kaydedildi: %s\n", savePath)
+					return nil
+				}
+
+				fmt.Print(fullPrompt)
+				return nil
+			},
+		}
+
+		aliasCmd.Flags().BoolVar(&withDiffFlag, "with-diff", false, "Git değişiklik detayını (diff) prompta ekler")
+		aliasCmd.Flags().BoolVar(&saveFlag, "save", false, "Prompt çıktısını varsayılan konuma (~/.yap/context.md) kaydeder")
+		aliasCmd.Flags().StringVar(&outFlag, "out", "", "Prompt çıktısını belirtilen dosya yoluna kaydeder")
+
+		rootCmd.AddCommand(aliasCmd)
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
