@@ -37,7 +37,13 @@ func Scan(dir string) (*ProjectInfo, error) {
 	}
 
 	// 2. Scan language-specific configuration files
-	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "project.godot")); err == nil {
+		info.Language = "GDScript (Godot)"
+	} else if hasUnrealProject(dir) {
+		info.Language = "C++ (Unreal Engine)"
+	} else if isUnityProject(dir) {
+		info.Language = "C# (Unity)"
+	} else if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
 		info.Language = "JavaScript/TypeScript"
 		scanPackageJSON(filepath.Join(dir, "package.json"), info)
 	} else if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
@@ -80,6 +86,31 @@ func Scan(dir string) (*ProjectInfo, error) {
 	}
 
 	return info, nil
+}
+
+func hasUnrealProject(dir string) bool {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".uproject") {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnityProject(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "ProjectSettings", "ProjectVersion.txt")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Assets")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "ProjectSettings")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func scanPackageJSON(path string, info *ProjectInfo) {
@@ -454,6 +485,14 @@ func detectLanguageByExtensions(dir string) string {
 		return "CSS"
 	case ".sql":
 		return "SQL"
+	case ".gd":
+		return "GDScript"
+	case ".gdshader":
+		return "Godot Shader"
+	case ".shader":
+		return "ShaderLab (Unity)"
+	case ".uproject":
+		return "Unreal Engine Project"
 	}
 
 	return "Unknown"

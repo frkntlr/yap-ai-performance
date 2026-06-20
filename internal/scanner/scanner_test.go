@@ -98,3 +98,30 @@ func TestScanExtensionFallback(t *testing.T) {
 		t.Errorf("expected Language to be 'C/C++', got %q", info.Language)
 	}
 }
+
+func TestScanGameEngines(t *testing.T) {
+	// 1. Godot
+	godotDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(godotDir, "project.godot"), []byte(""), 0644)
+	info, err := Scan(godotDir)
+	if err != nil || info.Language != "GDScript (Godot)" {
+		t.Errorf("Godot detection failed: %v, %v", err, info.Language)
+	}
+
+	// 2. Unreal Engine
+	unrealDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(unrealDir, "MyGame.uproject"), []byte(""), 0644)
+	info, err = Scan(unrealDir)
+	if err != nil || info.Language != "C++ (Unreal Engine)" {
+		t.Errorf("Unreal Engine detection failed: %v, %v", err, info.Language)
+	}
+
+	// 3. Unity
+	unityDir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(unityDir, "ProjectSettings"), 0755)
+	_ = os.WriteFile(filepath.Join(unityDir, "ProjectSettings", "ProjectVersion.txt"), []byte(""), 0644)
+	info, err = Scan(unityDir)
+	if err != nil || info.Language != "C# (Unity)" {
+		t.Errorf("Unity detection failed: %v, %v", err, info.Language)
+	}
+}
