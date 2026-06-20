@@ -69,7 +69,7 @@ func Scan(dir string) (*ProjectInfo, error) {
 	} else if _, err := os.Stat(filepath.Join(dir, "build.gradle")); err == nil {
 		info.Language = "Java (Gradle)"
 	} else if _, err := os.Stat(filepath.Join(dir, "CMakeLists.txt")); err == nil {
-		info.Language = "C/C++"
+		info.Language = "C++"
 	} else if _, err := os.Stat(filepath.Join(dir, "Package.swift")); err == nil {
 		info.Language = "Swift"
 	} else if _, err := os.Stat(filepath.Join(dir, "Gemfile")); err == nil {
@@ -441,52 +441,226 @@ func detectLanguageByExtensions(dir string) string {
 	}
 
 	switch strings.ToLower(maxExt) {
-	case ".go":
-		return "Go"
-	case ".js", ".jsx":
-		return "JavaScript"
-	case ".ts", ".tsx":
-		return "TypeScript"
-	case ".rs":
-		return "Rust"
-	case ".py":
-		return "Python"
-	case ".java":
-		return "Java"
-	case ".cs":
-		return "C#"
-	case ".cpp", ".cc", ".cxx", ".h", ".hpp":
-		return "C/C++"
-	case ".c":
-		return "C"
-	case ".swift":
-		return "Swift"
-	case ".kt", ".kts":
-		return "Kotlin"
-	case ".rb":
-		return "Ruby"
-	case ".php":
-		return "PHP"
-	case ".dart":
-		return "Dart"
+	case ".abap":
+		return "ABAP"
+	case ".as":
+		return "ActionScript"
+	case ".adb", ".ads":
+		return "Ada"
+	case ".agda":
+		return "Agda"
+	case ".alg":
+		return "Algol"
+	case ".cls":
+		return "Apex"
+	case ".apl":
+		return "APL"
+	case ".asm", ".s":
+		return "Assembly"
+	case ".awk":
+		return "Awk"
+	case ".bal":
+		return "Ballerina"
 	case ".sh", ".bash":
 		return "Shell Script"
-	case ".pl":
-		return "Perl"
-	case ".scala":
-		return "Scala"
-	case ".hs":
-		return "Haskell"
-	case ".tf":
-		return "Terraform"
-	case ".html", ".htm":
-		return "HTML"
+	case ".bas":
+		return "BASIC"
+	case ".bat", ".cmd":
+		return "Batch"
+	case ".bb":
+		return "BlitzBasic"
+	case ".boo":
+		return "Boo"
+	case ".bf":
+		return "Brainfuck"
+	case ".c":
+		return "C"
+	case ".cs":
+		return "C#"
+	case ".cpp", ".cc", ".cxx", ".hpp", ".h":
+		return "C++"
+	case ".ceylon":
+		return "Ceylon"
+	case ".chpl":
+		return "Chapel"
+	case ".clw":
+		return "Clarion"
+	case ".clj", ".cljs", ".cljc", ".edn":
+		return "Clojure"
+	case ".cob", ".cbl":
+		return "COBOL"
+	case ".coffee":
+		return "CoffeeScript"
+	case ".cfm":
+		return "ColdFusion"
+	case ".lisp", ".lsp", ".cl":
+		return "Lisp"
+	case ".cr":
+		return "Crystal"
 	case ".css":
 		return "CSS"
+	case ".d":
+		return "D"
+	case ".dart":
+		return "Dart"
+	case ".pas", ".dfm", ".dpr":
+		return "Delphi"
+	case ".dylan":
+		return "Dylan"
+	case ".e":
+		return "E"
+	case ".ex", ".exs":
+		return "Elixir"
+	case ".elm":
+		return "Elm"
+	case ".erl", ".hrl":
+		return "Erlang"
+	case ".fs", ".fsi", ".fsx":
+		return "F#"
+	case ".fth", ".4th":
+		return "Forth"
+	case ".f90", ".f", ".for":
+		return "Fortran"
+	case ".prg":
+		return "FoxPro"
+	case ".gd":
+		return "GDScript (.gd)"
+	case ".glsl", ".vert", ".frag":
+		return "GLSL"
+	case ".gml":
+		return "GML (GameMaker Language)"
+	case ".go":
+		return "Go (Golang)"
+	case ".groovy", ".gvy":
+		return "Groovy"
+	case ".hack", ".hh":
+		return "Hack"
+	case ".hs", ".lhs":
+		return "Haskell"
+	case ".hx":
+		return "Haxe"
+	case ".hlsl", ".fx":
+		return "HLSL"
+	case ".html", ".htm":
+		return "HTML"
+	case ".idr", ".lidr":
+		return "Idris"
+	case ".inf", ".ni":
+		return "Inform"
+	case ".ijs":
+		return "J"
+	case ".java":
+		return "Java"
+	case ".js", ".jsx", ".mjs":
+		return "JavaScript"
+	case ".jinja", ".jinja2":
+		return "Jinja"
+	case ".jl":
+		return "Julia"
+	case ".kt", ".kts":
+		return "Kotlin"
+	case ".vi":
+		return "LabVIEW"
+	case ".tex", ".sty":
+		return "LaTeX"
+	case ".ls":
+		return "LiveScript"
+	case ".lgo":
+		return "Logo"
+	case ".lol":
+		return "LOLCODE"
+	case ".lua":
+		return "Lua"
+	case ".mb":
+		return "Malbolge"
+	case ".md", ".markdown":
+		return "Markdown"
+	case ".m":
+		return "MATLAB / Objective-C"
+	case ".nim":
+		return "Nim"
+	case ".nix":
+		return "Nix"
+	case ".mm":
+		return "Objective-C++"
+	case ".ml", ".mli":
+		return "OCaml"
+	case ".opencl":
+		return "OpenCL"
+	case ".pl":
+		return "Perl / Prolog"
+	case ".pls", ".plsql":
+		return "PL/SQL"
+	case ".ps":
+		return "PostScript"
+	case ".ps1", ".psm1":
+		return "PowerShell"
+	case ".pro":
+		return "Prolog"
+	case ".pd":
+		return "Pure Data"
+	case ".purs":
+		return "PureScript"
+	case ".py", ".ipynb":
+		return "Python"
+	case ".r", ".R":
+		return "R"
+	case ".rkt":
+		return "Racket"
+	case ".raku", ".pm6":
+		return "Raku"
+	case ".re":
+		return "Reason"
+	case ".red":
+		return "Red"
+	case ".rb":
+		return "Ruby"
+	case ".rs":
+		return "Rust"
+	case ".sas":
+		return "SAS"
+	case ".scala":
+		return "Scala"
+	case ".scm", ".ss":
+		return "Scheme"
+	case ".sb3", ".sb2":
+		return "Scratch"
+	case ".st":
+		return "Smalltalk"
+	case ".sol":
+		return "Solidity"
 	case ".sql":
 		return "SQL"
-	case ".gd":
-		return "GDScript"
+	case ".swift":
+		return "Swift"
+	case ".tcl":
+		return "Tcl"
+	case ".ts", ".tsx":
+		return "TypeScript"
+	case ".v":
+		return "V / Verilog"
+	case ".vala":
+		return "Vala"
+	case ".vbs":
+		return "VBScript"
+	case ".vhd", ".vhdl":
+		return "VHDL"
+	case ".vb":
+		return "Visual Basic"
+	case ".vy":
+		return "Vyper"
+	case ".wasm", ".wat":
+		return "WebAssembly (Wasm)"
+	case ".ws":
+		return "Whitespace"
+	case ".wl", ".wls", ".nb":
+		return "Wolfram Language"
+	case ".xml":
+		return "XML"
+	case ".yaml", ".yml":
+		return "YAML"
+	case ".zig":
+		return "Zig"
 	case ".gdshader":
 		return "Godot Shader"
 	case ".shader":

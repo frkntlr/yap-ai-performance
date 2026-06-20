@@ -94,8 +94,8 @@ func TestScanExtensionFallback(t *testing.T) {
 		t.Fatalf("Scan failed: %v", err)
 	}
 
-	if info.Language != "C/C++" {
-		t.Errorf("expected Language to be 'C/C++', got %q", info.Language)
+	if info.Language != "C++" {
+		t.Errorf("expected Language to be 'C++', got %q", info.Language)
 	}
 }
 
