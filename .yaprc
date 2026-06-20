@@ -1,0 +1,8 @@
+{
+  "default_model": "gemini-2.5-pro",
+  "log_level": "DEBUG",
+  "aliases": {
+    "cgc-debug": "CGC (CodeGraphContext) veritabanı yollarını, proxy durumunu ve veritabanı boyutlarını kontrol edip optimize et.",
+    "build-check": "Makefile kurallarını, derleme ayarlarını, goreleaser konfigürasyonlarını ve platform hedeflerini gözden geçir."
+  }
+}
