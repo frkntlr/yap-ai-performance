@@ -2,3 +2,6 @@
 .codegraphcontext_db
 .cgcignore
 graphify-out/
+dist/
+*.exe
+yap
