@@ -52,10 +52,31 @@ func Scan(dir string) (*ProjectInfo, error) {
 	} else if _, err := os.Stat(filepath.Join(dir, "pyproject.toml")); err == nil {
 		info.Language = "Python"
 		scanPyprojectToml(filepath.Join(dir, "pyproject.toml"), info)
+	} else if _, err := os.Stat(filepath.Join(dir, "composer.json")); err == nil {
+		info.Language = "PHP"
+		scanComposerJSON(filepath.Join(dir, "composer.json"), info)
+	} else if _, err := os.Stat(filepath.Join(dir, "pubspec.yaml")); err == nil {
+		info.Language = "Dart/Flutter"
+		scanPubspecYAML(filepath.Join(dir, "pubspec.yaml"), info)
 	} else if _, err := os.Stat(filepath.Join(dir, "pom.xml")); err == nil {
 		info.Language = "Java (Maven)"
 	} else if _, err := os.Stat(filepath.Join(dir, "build.gradle")); err == nil {
 		info.Language = "Java (Gradle)"
+	} else if _, err := os.Stat(filepath.Join(dir, "CMakeLists.txt")); err == nil {
+		info.Language = "C/C++"
+	} else if _, err := os.Stat(filepath.Join(dir, "Package.swift")); err == nil {
+		info.Language = "Swift"
+	} else if _, err := os.Stat(filepath.Join(dir, "Gemfile")); err == nil {
+		info.Language = "Ruby"
+	} else if _, err := os.Stat(filepath.Join(dir, "build.sbt")); err == nil {
+		info.Language = "Scala"
+	} else if _, err := os.Stat(filepath.Join(dir, "Makefile")); err == nil {
+		info.Language = "Makefile/C"
+	}
+
+	// 3. Fallback: Extension based language detection if config files are not present
+	if info.Language == "Unknown" {
+		info.Language = detectLanguageByExtensions(dir)
 	}
 
 	return info, nil
@@ -273,4 +294,167 @@ func scanPyprojectToml(path string, info *ProjectInfo) {
 			}
 		}
 	}
+}
+
+func scanComposerJSON(path string, info *ProjectInfo) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var comp struct {
+		Name    string                 `json:"name"`
+		Require map[string]interface{} `json:"require"`
+	}
+	if err := json.Unmarshal(data, &comp); err != nil {
+		return
+	}
+	info.ModuleName = comp.Name
+	count := 0
+	for dep := range comp.Require {
+		if dep == "php" {
+			continue
+		}
+		if count < 15 {
+			info.Dependencies = append(info.Dependencies, dep)
+			count++
+		}
+	}
+}
+
+func scanPubspecYAML(path string, info *ProjectInfo) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	inDependencies := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "name:") {
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) == 2 {
+				info.ModuleName = strings.TrimSpace(parts[1])
+			}
+		}
+
+		if trimmed == "dependencies:" {
+			inDependencies = true
+			continue
+		} else if inDependencies && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			inDependencies = false
+		}
+
+		if inDependencies {
+			if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+				parts := strings.SplitN(trimmed, ":", 2)
+				depName := strings.TrimSpace(parts[0])
+				if depName != "flutter" && len(info.Dependencies) < 15 {
+					info.Dependencies = append(info.Dependencies, depName)
+				}
+			}
+		}
+	}
+}
+
+func detectLanguageByExtensions(dir string) string {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return "Unknown"
+	}
+
+	extCounts := make(map[string]int)
+	for _, f := range files {
+		if f.IsDir() {
+			name := f.Name()
+			if name == ".git" || name == "node_modules" || name == "dist" || name == "bin" || name == "vendor" || name == "build" {
+				continue
+			}
+			subFiles, err := os.ReadDir(filepath.Join(dir, name))
+			if err == nil {
+				for _, sf := range subFiles {
+					if !sf.IsDir() {
+						ext := filepath.Ext(sf.Name())
+						if ext != "" {
+							extCounts[ext]++
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		ext := filepath.Ext(f.Name())
+		if ext != "" {
+			extCounts[ext]++
+		}
+	}
+
+	if len(extCounts) == 0 {
+		return "Unknown"
+	}
+
+	maxExt := ""
+	maxCount := 0
+	for ext, count := range extCounts {
+		if count > maxCount {
+			maxCount = count
+			maxExt = ext
+		}
+	}
+
+	switch strings.ToLower(maxExt) {
+	case ".go":
+		return "Go"
+	case ".js", ".jsx":
+		return "JavaScript"
+	case ".ts", ".tsx":
+		return "TypeScript"
+	case ".rs":
+		return "Rust"
+	case ".py":
+		return "Python"
+	case ".java":
+		return "Java"
+	case ".cs":
+		return "C#"
+	case ".cpp", ".cc", ".cxx", ".h", ".hpp":
+		return "C/C++"
+	case ".c":
+		return "C"
+	case ".swift":
+		return "Swift"
+	case ".kt", ".kts":
+		return "Kotlin"
+	case ".rb":
+		return "Ruby"
+	case ".php":
+		return "PHP"
+	case ".dart":
+		return "Dart"
+	case ".sh", ".bash":
+		return "Shell Script"
+	case ".pl":
+		return "Perl"
+	case ".scala":
+		return "Scala"
+	case ".hs":
+		return "Haskell"
+	case ".tf":
+		return "Terraform"
+	case ".html", ".htm":
+		return "HTML"
+	case ".css":
+		return "CSS"
+	case ".sql":
+		return "SQL"
+	}
+
+	return "Unknown"
 }

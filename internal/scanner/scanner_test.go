@@ -77,3 +77,24 @@ func TestScanNodeProject(t *testing.T) {
 		t.Errorf("expected 2 frameworks (react, vite), got %d: %v", len(info.Frameworks), info.Frameworks)
 	}
 }
+
+func TestScanExtensionFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write 3 C++ files
+	_ = os.WriteFile(filepath.Join(tmpDir, "main.cpp"), []byte("int main() {}"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "helper.cpp"), []byte(""), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "helper.h"), []byte(""), 0644)
+
+	// Write 1 python file (less than cpp)
+	_ = os.WriteFile(filepath.Join(tmpDir, "script.py"), []byte(""), 0644)
+
+	info, err := Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	if info.Language != "C/C++" {
+		t.Errorf("expected Language to be 'C/C++', got %q", info.Language)
+	}
+}
