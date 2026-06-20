@@ -8,14 +8,21 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/frkntlr/yap-ai-performance/internal/context"
 	"github.com/frkntlr/yap-ai-performance/internal/detector"
+	"github.com/frkntlr/yap-ai-performance/internal/dryrun"
 )
 
 // Step4Patch applies necessary runtime patches to CodeGraphContext codebase.
-func Step4Patch(p *detector.Platform) error {
+func Step4Patch(p *detector.Platform, ctx *context.RunContext) error {
 	venvDir := filepath.Join(p.HomeDir, ".local", "share", "pipx", "venvs", "codegraphcontext")
 
 	if _, err := os.Stat(venvDir); os.IsNotExist(err) {
+		if ctx.DryRun {
+			dryrun.PrintSimulation(fmt.Sprintf("codegraphcontext pipx venv patches at %s will be simulated", venvDir))
+			ctx.Logger.Info("Venv directory does not exist, simulating patches", "venvDir", venvDir)
+			return nil
+		}
 		return fmt.Errorf("codegraphcontext pipx venv not found at %s. Please install tools first", venvDir)
 	}
 
@@ -47,7 +54,8 @@ func Step4Patch(p *detector.Platform) error {
 	// 1. Patch server.py
 	if serverPy != "" {
 		fmt.Printf("Patching server.py: %s\n", serverPy)
-		if err := patchServerPy(serverPy); err != nil {
+		ctx.Logger.Info("Patching server.py", "path", serverPy)
+		if err := patchServerPy(ctx, serverPy); err != nil {
 			return err
 		}
 	} else {
@@ -63,18 +71,27 @@ func Step4Patch(p *detector.Platform) error {
 		}
 		content := string(data)
 		if strings.Contains(content, "Console()") {
-			newContent := strings.ReplaceAll(content, "Console()", "Console(stderr=True)")
-			if err := ioutil.WriteFile(pyFile, []byte(newContent), 0644); err == nil {
+			if ctx.DryRun {
+				dryrun.PrintSimulation(fmt.Sprintf("Console() -> Console(stderr=True) patch will be applied to: %s", pyFile))
 				patchedConsoleCount++
+			} else {
+				newContent := strings.ReplaceAll(content, "Console()", "Console(stderr=True)")
+				if err := ioutil.WriteFile(pyFile, []byte(newContent), 0644); err == nil {
+					patchedConsoleCount++
+				} else {
+					ctx.Logger.Warn("Failed to patch Console() in file", "path", pyFile, "error", err)
+				}
 			}
 		}
 	}
 	fmt.Printf("Patched Console() to Console(stderr=True) in %d files.\n", patchedConsoleCount)
+	ctx.Logger.Info("Console patches completed", "count", patchedConsoleCount)
 
 	// 3. Patch database_kuzu.py
 	if kuzuPy != "" {
 		fmt.Printf("Patching database_kuzu.py: %s\n", kuzuPy)
-		if err := patchDatabaseKuzuPy(kuzuPy); err != nil {
+		ctx.Logger.Info("Patching database_kuzu.py", "path", kuzuPy)
+		if err := patchDatabaseKuzuPy(ctx, kuzuPy); err != nil {
 			return err
 		}
 	} else {
@@ -84,7 +101,12 @@ func Step4Patch(p *detector.Platform) error {
 	return nil
 }
 
-func patchServerPy(path string) error {
+func patchServerPy(ctx *context.RunContext, path string) error {
+	if ctx.DryRun {
+		dryrun.PrintSimulation(fmt.Sprintf("server.py patches will be applied to: %s", path))
+		return nil
+	}
+
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
@@ -123,14 +145,21 @@ func patchServerPy(path string) error {
 			return err
 		}
 		fmt.Println("server.py patches applied successfully!")
+		ctx.Logger.Info("server.py patches applied successfully")
 	} else {
 		fmt.Println("server.py patches already applied or targets not found.")
+		ctx.Logger.Info("server.py patches already applied or targets not found")
 	}
 
 	return nil
 }
 
-func patchDatabaseKuzuPy(path string) error {
+func patchDatabaseKuzuPy(ctx *context.RunContext, path string) error {
+	if ctx.DryRun {
+		dryrun.PrintSimulation(fmt.Sprintf("database_kuzu.py patches will be applied to: %s", path))
+		return nil
+	}
+
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
@@ -166,19 +195,16 @@ $1        raise`
 	}
 
 	// Target 3: Skip schema init if read-only
-	// Matches schema initialization block
 	schemaPattern := regexp.MustCompile(`(\s+)# Use one connection from the pool to initialise schema\r?\n\s+temp_conn = self\._pool\.get\(\)\r?\n\s+try:\r?\n\s+self\._conn = temp_conn[^\n]*\r?\n\s+self\._initialize_schema\(\)\r?\n\s+self\._conn = None\r?\n\s+finally:\r?\n\s+self\._pool\.put\(temp_conn\)`)
 	
 	if schemaPattern.MatchString(content) && !strings.Contains(content, "Skipping schema init") {
 		content = schemaPattern.ReplaceAllStringFunc(content, func(match string) string {
-			// Extract indentation
 			lines := strings.Split(match, "\n")
 			indent := ""
 			if len(lines) > 0 {
 				indent = lines[0][:len(lines[0])-len(strings.TrimSpace(lines[0]))]
 			}
 			
-			// Indent the original block
 			indentedBlock := ""
 			for _, line := range lines {
 				if strings.TrimSpace(line) != "" {
@@ -200,9 +226,12 @@ $1        raise`
 			return err
 		}
 		fmt.Println("database_kuzu.py patched successfully!")
+		ctx.Logger.Info("database_kuzu.py patched successfully")
 	} else {
 		fmt.Println("database_kuzu.py patches already applied or targets not found.")
+		ctx.Logger.Info("database_kuzu.py patches already applied or targets not found")
 	}
 
 	return nil
 }
+

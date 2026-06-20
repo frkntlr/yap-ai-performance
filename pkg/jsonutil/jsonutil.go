@@ -2,9 +2,12 @@ package jsonutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	"github.com/frkntlr/yap-ai-performance/internal/dryrun"
 )
 
 type MCPServer struct {
@@ -51,7 +54,13 @@ func ReadOrCreate(path string) (*MCPConfig, error) {
 }
 
 // Write writes the MCPConfig structure to the file at the given path with nice indentation.
-func Write(path string, config *MCPConfig) error {
+// If dryRun is true, it simulates the write operation.
+func Write(dryRun bool, path string, config *MCPConfig) error {
+	if dryRun {
+		dryrun.PrintSimulation(fmt.Sprintf("%s güncellenecek", path))
+		return nil
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -64,3 +73,4 @@ func Write(path string, config *MCPConfig) error {
 
 	return ioutil.WriteFile(path, data, 0644)
 }
+

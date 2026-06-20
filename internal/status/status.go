@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,25 +25,36 @@ type CheckResult struct {
 }
 
 // RunStatus performs active diagnostic checks and returns the results.
-func RunStatus(p *detector.Platform) []CheckResult {
+func RunStatus(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	var results []CheckResult
 
+	if logger != nil {
+		logger.Debug("Starting active diagnostics suite")
+	}
+
 	// 1. Tool Checks
-	results = append(results, checkTools(p)...)
+	results = append(results, checkTools(p, logger)...)
 
 	// 2. Config Checks
-	results = append(results, checkConfigs(p)...)
+	results = append(results, checkConfigs(p, logger)...)
 
 	// 3. Patch Checks
-	results = append(results, checkPatches(p)...)
+	results = append(results, checkPatches(p, logger)...)
 
 	// 4. Liveness Checks (only if tools are present)
-	results = append(results, checkLiveness(p)...)
+	results = append(results, checkLiveness(p, logger)...)
+
+	if logger != nil {
+		logger.Debug("Completed diagnostics suite", "totalChecks", len(results))
+	}
 
 	return results
 }
 
-func checkTools(p *detector.Platform) []CheckResult {
+func checkTools(p *detector.Platform, logger *slog.Logger) []CheckResult {
+	if logger != nil {
+		logger.Debug("Checking tools and dependencies status")
+	}
 	var results []CheckResult
 
 	// Check codegraphcontext
@@ -115,7 +127,10 @@ func checkTools(p *detector.Platform) []CheckResult {
 	return results
 }
 
-func checkConfigs(p *detector.Platform) []CheckResult {
+func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
+	if logger != nil {
+		logger.Debug("Checking MCP configuration files status")
+	}
 	var results []CheckResult
 	var configPaths []string
 
@@ -194,7 +209,10 @@ func checkConfigs(p *detector.Platform) []CheckResult {
 	return results
 }
 
-func checkPatches(p *detector.Platform) []CheckResult {
+func checkPatches(p *detector.Platform, logger *slog.Logger) []CheckResult {
+	if logger != nil {
+		logger.Debug("Checking CodeGraphContext Python patches status")
+	}
 	var results []CheckResult
 
 	// Try to find the site-packages codegraphcontext path
@@ -285,7 +303,10 @@ func checkPatches(p *detector.Platform) []CheckResult {
 	return results
 }
 
-func checkLiveness(p *detector.Platform) []CheckResult {
+func checkLiveness(p *detector.Platform, logger *slog.Logger) []CheckResult {
+	if logger != nil {
+		logger.Debug("Checking MCP proxy liveness status")
+	}
 	var results []CheckResult
 
 	// Try to locate 'yap' binary to test proxy
@@ -299,15 +320,18 @@ func checkLiveness(p *detector.Platform) []CheckResult {
 	}
 
 	// Test CodeGraphContext proxy liveness
-	results = append(results, testProxyLiveness(yapBin, "cgc"))
+	results = append(results, testProxyLiveness(yapBin, "cgc", logger))
 
 	// Test Graphify proxy liveness (only if a graph exists somewhere in cache/workspace)
-	results = append(results, testProxyLiveness(yapBin, "graphify"))
+	results = append(results, testProxyLiveness(yapBin, "graphify", logger))
 
 	return results
 }
 
-func testProxyLiveness(yapBin, service string) CheckResult {
+func testProxyLiveness(yapBin, service string, logger *slog.Logger) CheckResult {
+	if logger != nil {
+		logger.Debug("Testing proxy liveness", "service", service, "yapBin", yapBin)
+	}
 	cmd := exec.Command(yapBin, "proxy", service)
 	
 	stdin, err := cmd.StdinPipe()

@@ -5,15 +5,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"sync"
+	"time"
+
+	"github.com/frkntlr/yap-ai-performance/internal/logger"
 )
 
 type Cache map[string]string
@@ -49,7 +51,7 @@ func saveCache(cache Cache) {
 	}
 }
 
-func findGraph(workspaceRoot string, logFile io.Writer) string {
+func findGraph(workspaceRoot string, loggerInst *slog.Logger) string {
 	// 1. Priority: Workspace local graph
 	if workspaceRoot != "" {
 		candidate := filepath.Join(workspaceRoot, "graphify-out", "graph.json")
@@ -57,7 +59,7 @@ func findGraph(workspaceRoot string, logFile io.Writer) string {
 			cache := loadCache()
 			cache[workspaceRoot] = candidate
 			saveCache(cache)
-			_, _ = fmt.Fprintf(logFile, "Workspace local graph found: %s\n", candidate)
+			loggerInst.Info("Workspace local graph found", "path", candidate)
 			return candidate
 		}
 	}
@@ -66,7 +68,7 @@ func findGraph(workspaceRoot string, logFile io.Writer) string {
 	envPath := os.Getenv("GRAPHIFY_GRAPH_PATH")
 	if envPath != "" {
 		if _, err := os.Stat(envPath); err == nil {
-			_, _ = fmt.Fprintf(logFile, "Graph path from env var: %s\n", envPath)
+			loggerInst.Info("Graph path from env var", "path", envPath)
 			return envPath
 		}
 	}
@@ -94,42 +96,55 @@ func findGraph(workspaceRoot string, logFile io.Writer) string {
 			return false
 		})
 		fallback := validPaths[0]
-		_, _ = fmt.Fprintf(logFile, "No local graph found. Using fallback from cache: %s\n", fallback)
+		loggerInst.Info("No local graph found, using fallback from cache", "path", fallback)
 		return fallback
 	}
 
-	_, _ = fmt.Fprintln(logFile, "Error: No graphify-out/graph.json found anywhere.")
+	loggerInst.Error("No graphify-out/graph.json found anywhere")
 	return ""
 }
 
 // RunGraphifyProxy starts the Graphify proxy server.
 func RunGraphifyProxy() error {
-	logDir := filepath.Join(os.Getenv("HOME"), ".cache")
-	_ = os.MkdirAll(logDir, 0755)
-	logFile, err := os.OpenFile(filepath.Join(logDir, "graphify-mcp.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		defer logFile.Close()
-		log.SetOutput(logFile)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
 	}
 
-	log.Println("Graphify Proxy Wrapper started.")
+	// Initialize the custom dual logger
+	loggerInst, err := logger.Init(homeDir)
+	if err != nil {
+		// Fallback to default slog on failure
+		loggerInst = slog.Default()
+	}
+
+	// Open daily log file also for capturing subprocess Stderr raw output
+	logDir := filepath.Join(homeDir, ".yap", "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	dateStr := time.Now().Format("2006-01-02")
+	logPath := filepath.Join(logDir, fmt.Sprintf("yap-%s.log", dateStr))
+	subLogFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err == nil {
+		defer subLogFile.Close()
+	}
+
+	loggerInst.Info("Graphify Proxy Wrapper started")
 
 	stdinReader := bufio.NewReader(os.Stdin)
 	headers, body, isFramed, err := readFirstMessage(stdinReader)
 	if err != nil {
-		log.Printf("Error reading first message: %v\n", err)
+		loggerInst.Error("Error reading first message", "error", err)
 	} else if len(body) > 0 {
-		log.Printf("Intercepted first message: %s\n", string(body))
+		loggerInst.Debug("Intercepted first message", "body", string(body))
 	}
 
 	workspaceRoot := parseWorkspaceRoot(body)
-	graphPath := findGraph(workspaceRoot, logFile)
+	graphPath := findGraph(workspaceRoot, loggerInst)
 	if graphPath == "" {
-		log.Println("No graph found. Server cannot start.")
+		loggerInst.Error("No graph found. Server cannot start.")
 		return fmt.Errorf("no graph found")
 	}
 
-	home, _ := os.UserHomeDir()
 	var pythonBin string
 	var cmdArgs []string
 
@@ -144,7 +159,7 @@ func RunGraphifyProxy() error {
 		}
 		cmdArgs = []string{"-m", "graphify.serve", graphPath}
 	} else {
-		pythonBin = filepath.Join(home, ".local", "share", "uv", "tools", "graphifyy", "bin", "python")
+		pythonBin = filepath.Join(homeDir, ".local", "share", "uv", "tools", "graphifyy", "bin", "python")
 		if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
 			// Fallback
 			pythonBin = "python3"
@@ -156,25 +171,29 @@ func RunGraphifyProxy() error {
 		cmdArgs = append(cmdArgs, os.Args[3:]...)
 	}
 
-	log.Printf("Starting subprocess: %s %v\n", pythonBin, cmdArgs)
+	loggerInst.Info("Starting subprocess", "path", pythonBin, "args", cmdArgs)
 	cmd := exec.Command(pythonBin, cmdArgs...)
 	cmd.Dir = workspaceRoot
-	cmd.Stderr = logFile
+	if subLogFile != nil {
+		cmd.Stderr = subLogFile
+	} else {
+		cmd.Stderr = os.Stderr
+	}
 
 	subStdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("Failed to get stdin pipe: %v\n", err)
+		loggerInst.Error("Failed to get stdin pipe", "error", err)
 		return err
 	}
 
 	subStdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Printf("Failed to get stdout pipe: %v\n", err)
+		loggerInst.Error("Failed to get stdout pipe", "error", err)
 		return err
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Printf("Failed to start subprocess: %v\n", err)
+		loggerInst.Error("Failed to start subprocess", "error", err)
 		return err
 	}
 
@@ -207,6 +226,6 @@ func RunGraphifyProxy() error {
 	_ = cmd.Wait()
 	wg.Wait()
 
-	log.Println("Graphify Proxy Wrapper terminated.")
+	loggerInst.Info("Graphify Proxy Wrapper terminated")
 	return nil
 }

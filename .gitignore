@@ -4,4 +4,4 @@
 graphify-out/
 dist/
 *.exe
-yap
+/yap

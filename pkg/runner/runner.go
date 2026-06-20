@@ -2,8 +2,12 @@ package runner
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
+
+	"github.com/frkntlr/yap-ai-performance/internal/dryrun"
 )
 
 // Exists checks if a command is available on the system PATH.
@@ -13,7 +17,17 @@ func Exists(name string) bool {
 }
 
 // Run executes a command and streams its output directly to stdout/stderr.
-func Run(name string, args ...string) error {
+// If dryRun is true, it simulates the run and prints a simulation message.
+func Run(dryRun bool, name string, args ...string) error {
+	if dryRun {
+		cmdStr := name
+		if len(args) > 0 {
+			cmdStr += " " + strings.Join(args, " ")
+		}
+		dryrun.PrintSimulation(fmt.Sprintf("'%s' komutu çalıştırılacak", cmdStr))
+		return nil
+	}
+
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -21,7 +35,17 @@ func Run(name string, args ...string) error {
 }
 
 // RunInDir executes a command in a specific directory, streaming output to stdout/stderr.
-func RunInDir(dir, name string, args ...string) error {
+// If dryRun is true, it simulates the run and prints a simulation message.
+func RunInDir(dryRun bool, dir, name string, args ...string) error {
+	if dryRun {
+		cmdStr := name
+		if len(args) > 0 {
+			cmdStr += " " + strings.Join(args, " ")
+		}
+		dryrun.PrintSimulation(fmt.Sprintf("'%s' (dizin: %s) komutu çalıştırılacak", cmdStr, dir))
+		return nil
+	}
+
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
@@ -49,3 +73,4 @@ func RunInDirAndCapture(dir, name string, args ...string) (string, error) {
 	err := cmd.Run()
 	return buf.String(), err
 }
+

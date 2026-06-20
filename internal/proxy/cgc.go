@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/frkntlr/yap-ai-performance/internal/logger"
 )
 
 // readFirstMessage reads the first JSON-RPC message from r.
@@ -175,22 +178,36 @@ func forward(src io.Reader, dst io.Writer, wg *sync.WaitGroup) {
 
 // RunCGCProxy starts the CodeGraphContext proxy server.
 func RunCGCProxy() error {
-	logDir := filepath.Join(os.Getenv("HOME"), ".cache")
-	_ = os.MkdirAll(logDir, 0755)
-	logFile, err := os.OpenFile(filepath.Join(logDir, "codegraphcontext-mcp.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		defer logFile.Close()
-		log.SetOutput(logFile)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
 	}
 
-	log.Println("CGC Proxy Wrapper started.")
+	// Initialize the custom dual logger
+	loggerInst, err := logger.Init(homeDir)
+	if err != nil {
+		// Fallback to default slog on failure
+		loggerInst = slog.Default()
+	}
+
+	// Open daily log file also for capturing subprocess Stderr raw output
+	logDir := filepath.Join(homeDir, ".yap", "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	dateStr := time.Now().Format("2006-01-02")
+	logPath := filepath.Join(logDir, fmt.Sprintf("yap-%s.log", dateStr))
+	subLogFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err == nil {
+		defer subLogFile.Close()
+	}
+
+	loggerInst.Info("CGC Proxy Wrapper started")
 
 	stdinReader := bufio.NewReader(os.Stdin)
 	headers, body, isFramed, err := readFirstMessage(stdinReader)
 	if err != nil {
-		log.Printf("Error reading first message: %v\n", err)
+		loggerInst.Error("Error reading first message", "error", err)
 	} else if len(body) > 0 {
-		log.Printf("Intercepted first message: %s\n", string(body))
+		loggerInst.Debug("Intercepted first message", "body", string(body))
 	}
 
 	workspaceRoot := parseWorkspaceRoot(body)
@@ -200,16 +217,16 @@ func RunCGCProxy() error {
 	if workspaceRoot != "" {
 		dbPath = filepath.Join(workspaceRoot, ".codegraphcontext_db")
 		env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
-		log.Printf("Dynamic workspace root detected: %s\n", workspaceRoot)
-		log.Printf("Setting database path to: %s\n", dbPath)
+		loggerInst.Info("Dynamic workspace root detected", "workspaceRoot", workspaceRoot)
+		loggerInst.Info("Setting database path", "dbPath", dbPath)
 	} else {
 		dbPath = ".codegraphcontext_db"
 		env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
-		log.Println("No workspace root detected. Using relative fallback.")
+		loggerInst.Info("No workspace root detected, using fallback", "dbPath", dbPath)
 	}
 
 	// Locate codegraphcontext binary. Usually in ~/.local/bin or on PATH.
-	cgcPath := filepath.Join(os.Getenv("HOME"), ".local", "bin", "codegraphcontext")
+	cgcPath := filepath.Join(homeDir, ".local", "bin", "codegraphcontext")
 	if _, err := os.Stat(cgcPath); os.IsNotExist(err) {
 		// Try system path
 		if path, err := exec.LookPath("codegraphcontext"); err == nil {
@@ -217,7 +234,7 @@ func RunCGCProxy() error {
 		}
 	}
 
-	log.Printf("Starting subprocess: %s mcp start\n", cgcPath)
+	loggerInst.Info("Starting subprocess", "path", cgcPath, "args", "mcp start")
 	cmdArgs := []string{"mcp", "start"}
 	if len(os.Args) > 3 {
 		cmdArgs = append(cmdArgs, os.Args[3:]...)
@@ -226,22 +243,26 @@ func RunCGCProxy() error {
 	cmd := exec.Command(cgcPath, cmdArgs...)
 	cmd.Dir = workspaceRoot
 	cmd.Env = env
-	cmd.Stderr = logFile
+	if subLogFile != nil {
+		cmd.Stderr = subLogFile
+	} else {
+		cmd.Stderr = os.Stderr
+	}
 
 	subStdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("Failed to get stdin pipe: %v\n", err)
+		loggerInst.Error("Failed to get stdin pipe", "error", err)
 		return err
 	}
 
 	subStdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Printf("Failed to get stdout pipe: %v\n", err)
+		loggerInst.Error("Failed to get stdout pipe", "error", err)
 		return err
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Printf("Failed to start subprocess: %v\n", err)
+		loggerInst.Error("Failed to start subprocess", "error", err)
 		return err
 	}
 
@@ -274,6 +295,6 @@ func RunCGCProxy() error {
 	_ = cmd.Wait()
 	wg.Wait()
 
-	log.Println("CGC Proxy Wrapper terminated.")
+	loggerInst.Info("CGC Proxy Wrapper terminated")
 	return nil
 }
