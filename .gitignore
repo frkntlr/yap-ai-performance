@@ -1,0 +1,6 @@
+.codegraphcontext/
+.codegraphcontext_db
+.cgcignore
+install.sh
+patch_codegraphcontext.sh
+graphify-out/
