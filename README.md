@@ -1,142 +1,143 @@
-# Yap AI Performance — MCP Server Kurulum & Optimizasyon Aracı
+# Yap AI Performance CLI
 
-> Optimized MCP (Model Context Protocol) Server kurulum, yama ve yapılandırma aracı.  
-> **Linux**, **Windows** ve **macOS** platformlarını destekler.
-
----
-
-## 🚀 Özellikler
-
-- **Çoklu Platform Desteği** — Linux (Arch/Ubuntu), Windows 10/11, macOS 12+ Monterey
-- **Otomatik Bağımlılık Kurulumu** — `pipx`, `uv`, `python`, `git` otomatik kurulur
-- **CodeGraphContext** — pipx üzerinden kurulum + kritik yamalar otomatik uygulanır
-  - CGC_RUNTIME_DB_PATH veritabanı izolasyonu
-  - MCP Protokol Versiyonu müzakeresi
-  - stdout temizleme (ANSI kaçış kodları)
-  - KuzuDB kilitlenme koruması (read-only fallback)
-- **Graphify MCP** — `graphifyy[mcp]` uv tool olarak kurulur
-- **MCP Client Entegrasyonu** — Gemini CLI, Claude Desktop, Cursor ve VS Code yapılandırmaları otomatik oluşturulur
-- **Yap Skill** — Antigravity AI için yap skill global olarak kurulur
+> **Linux**, **macOS** ve **Windows** platformları için Go (Golang) ile geliştirilmiş, sıfır dış bağımlılıklı, yüksek performanslı ve akıllı bir MCP (Model Context Protocol) Server yönetim, optimizasyon ve bağlam (context) CLI aracı.
 
 ---
 
-## ⚡ Hızlı Başlangıç
+## 🚀 Temel Özellikler
 
-### 🐧 Linux (Arch / Ubuntu / Debian)
+- **Tekil Yürütülebilir Dosya (Single Executable):** Go ile derlenen, herhangi bir harici bağımlılığa ihtiyaç duymayan tek bir binary dosyası ile kolay dağıtım.
+- **Akıllı Bağlam Farkındalığı (`yap context`):** Çalıştırıldığı dizindeki projeyi (Go, JavaScript/TypeScript, Rust, Python, Java) tarar, git durumunu (`git diff --stat`) analiz eder ve yapay zeka modelleri için optimize edilmiş dinamik sistem promptu üretir.
+- **Özelleştirme ve Kısayollar (Custom Aliases):** Global (`~/.yaprc`) veya yerel (`./.yaprc`) yapılandırma dosyaları üzerinden sık tekrarlanan uzun prompt görevlerini (`yap code-review`, `yap explain` vb.) bağlam duyarlı kısayol komutlarına bağlar.
+- **Güvenlik ve Gözlemlenebilirlik (Safety & Logging):**
+  - **Dry-Run Modu (`--dry-run`):** Yapılacak işlemleri gerçekten uygulamadan önce güvenli bir şekilde simüle eder.
+  - **Otomatik Yedekleme ve Rollback (`yap rollback`):** Düzenlenen her ayar dosyasının otomatik yedeğini alır ve tek tuşla geri yüklenmesini sağlar.
+  - **slog Günlükleme:** Arka plan proxy ve kurulum süreçlerini `~/.yap/logs/` altında günlük log dosyalarına JSON formatında detaylıca kaydeder.
+- **Çevre Değişkenleri ve `.env` Desteği:** Çalışma dizinindeki `.env` dosyasını sıfır bağımlılıkla yükleyip `YAP_` ön ekli ayar değişkenlerini ezer.
+- **Aktif Sistem Teşhisi (`yap status`):** Sistem gereksinimleri, yüklü paketler, CGC yama durumları ve aktif port/servis kontrollerini gerçekleştirir.
+- **Go-Native JSON-RPC Proxy:** CodeGraphContext ve Graphify sunucularını yöneten, log dönen kararlı proxy katmanı.
+
+---
+
+## 💻 Kurulum ve Dağıtım
+
+### Derleme (Build)
+Uygulamayı yerel olarak derlemek için aşağıdaki komutları kullanabilirsiniz:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frkntlr/yap-ai-performance/main/install.sh | bash
+# Bağımlılıkları kontrol et ve statik analiz çalıştır
+go vet ./...
+
+# Birim testlerini çalıştır
+make test
+
+# Tüm platformlar için derleme yap (dist/ klasörü altına çıktılar oluşturulur)
+make build-all
 ```
 
-veya manuel:
+---
+
+## 🛠 Kullanım ve Komutlar
+
+### 1. Kurulum (`yap install`)
+Sistem gereksinimlerini kontrol eder, `pipx` veya `uv` üzerinden CodeGraphContext ve Graphify araçlarını kurar ve gerekli KuzuDB/Protokol yamalarını uygular.
 
 ```bash
-git clone https://github.com/frkntlr/yap-ai-performance.git
-cd yap-ai-performance
-chmod +x install.sh
-./install.sh
+yap install
+# Simülasyon modu
+yap install --dry-run
+# Yalnızca konfigürasyon adımı
+yap install --only=config
 ```
 
----
-
-### 🍎 macOS (Monterey 12+)
+### 2. Teşhis ve Sağlık Kontrolü (`yap status`)
+Kurulu bileşenleri ve yama durumlarını aktif olarak test eder.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frkntlr/yap-ai-performance/main/install_mac.sh | bash
+yap status
 ```
 
-veya manuel:
+### 3. Geri Yükleme (`yap rollback`)
+Yapılan konfigürasyon değişikliklerini otomatik olarak yedeklenen son kararlı sürüme geri döndürür.
 
 ```bash
-git clone https://github.com/frkntlr/yap-ai-performance.git
-cd yap-ai-performance
-chmod +x install_mac.sh
-./install_mac.sh
+yap rollback
 ```
 
-> **Not:** İlk çalıştırmada Homebrew ve Xcode Command Line Tools kurulabilir.  
-> Apple Silicon (M1/M2/M3) ve Intel Mac'ler desteklenir.
+### 4. Bağlam Analizi (`yap context`)
+Çalışma dizinindeki proje yapısını ve Git değişikliklerini analiz eder.
+
+```bash
+# Özet raporu basar
+yap context
+
+# AI modeline beslenecek sistem promptunu stdout'a yazar
+yap context --prompt
+
+# Git diff detaylarını prompta dahil eder
+yap context --prompt --with-diff
+
+# Prompt çıktısını kaydeder (varsayılan konuma: ~/.yap/context.md)
+yap context --prompt --save
+
+# JSON formatında çıktı verir
+yap context --json
+```
+
+### 5. Özel Kısayollar (Örn: `yap code-review`)
+`.yaprc` dosyanızda tanımladığınız özel takma adlar (aliases) dinamik olarak birer alt komuta dönüşür:
+
+```bash
+yap code-review --with-diff
+```
 
 ---
 
-### 🪟 Windows (PowerShell 5.1+)
+## ⚙️ Yapılandırma (`.yaprc`)
 
-PowerShell'i **Yönetici olarak** açın ve çalıştırın:
+Kişisel ayarlarınızı, varsayılan modellerinizi ve takma adlarınızı `~/.yaprc` (global) veya proje dizinindeki `.yaprc` (yerel) dosyasında tutabilirsiniz:
 
-```powershell
-# Önce execution policy'yi ayarlayın (tek seferlik)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# Repoyu klonlayın ve scripti çalıştırın
-git clone https://github.com/frkntlr/yap-ai-performance.git
-cd yap-ai-performance
-.\install.ps1
+```json
+{
+  "default_model": "gemini-1.5-flash",
+  "log_level": "INFO",
+  "aliases": {
+    "code-review": "Lütfen aşağıdaki değişikliklerin zaman karmaşıklığını (Big O) hesapla ve bellek sızıntılarını analiz et.",
+    "explain": "Bu kod parçasının ne yaptığını adım adım anlat."
+  }
+}
 ```
-
-veya doğrudan indirip çalıştırmak için:
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/frkntlr/yap-ai-performance/main/install.ps1" -OutFile "install.ps1"
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-> **Not:** winget (Windows Package Manager) kurulu olması önerilir.  
-> `winget` yoksa Python'u https://python.org adresinden manuel kurun.
 
 ---
 
-## 🔧 Kurulum Adımları (Tüm Platformlar)
-
-| Adım | İşlem | Linux | macOS | Windows |
-|------|-------|:-----:|:-----:|:-------:|
-| 1/7  | OS algılama | pacman/apt | sw_vers | WinVer |
-| 2/7  | Bağımlılıklar | pacman/apt | Homebrew | winget/pip |
-| 3/7  | CGC + Graphify kurulumu | ✓ | ✓ | ✓ |
-| 4/7  | CGC yamaları | ✓ | ✓ | ✓ |
-| 5/7  | Wrapper scriptler | `~/.local/bin/` | `~/.local/bin/` | `%USERPROFILE%\.local\bin\` |
-| 6/7  | MCP config güncelleme | ✓ | `~/Library/...` | `%APPDATA%\...` |
-| 7/7  | Doğrulama + yap skill | ✓ | ✓ | ✓ |
-
----
-
-## 📁 Proje Yapısı
+## 📁 Proje Dizin Yapısı
 
 ```
 .
-├── install.sh        # Linux kurulum scripti (Arch / Ubuntu / Debian)
-├── install_mac.sh    # macOS kurulum scripti (Homebrew tabanlı)
-├── install.ps1       # Windows kurulum scripti (PowerShell)
-├── test.go           # Go JSON unmarshal edge-case testi
+├── cmd/
+│   └── yap/
+│       └── main.go           # CLI Giriş Noktası ve Komut Yönetimi
+├── internal/
+│   ├── backup/               # Güvenli zaman damgalı yedekleme ve rollback modülü
+│   ├── config/               # Katmanlı JSON tabanlı .yaprc yapılandırma yöneticisi
+│   ├── confirm/              # bufio tabanlı kullanıcı onay arayüzü
+│   ├── detector/             # İşletim sistemi ve paket yöneticisi tespiti
+│   ├── dryrun/               # Değişiklik simülasyon çıktıları
+│   ├── env/                  # Sıfır dış bağımlılıklı .env ayrıştırıcısı
+│   ├── gitinfo/              # os/exec tabanlı git status/diff stat analizörü
+│   ├── installer/            # 6 adımlı sırayla kurulum adımları
+│   ├── logger/               # slog tabanlı dual (JSON/Terminal) loglama sistemi
+│   ├── proxy/                # Go-native transparent JSON-RPC proxy
+│   └── scanner/              # Proje teknoloji ve bağımlılık tarayıcısı
+├── pkg/
+│   ├── fileutil/             # Dosya kopyalama ve arama yardımcıları
+│   ├── jsonutil/             # JSON okuma/yazma yardımcıları
+│   ├── promptbuilder/        # Dinamik prompt şablon mimarisi
+│   └── runner/               # Komut çalıştırma ve çıktı yakalama araçları
+├── Makefile                  # Çoklu platform derleme komutları
+├── go.mod
 └── README.md
 ```
-
----
-
-## 🔍 Desteklenen MCP Client'lar
-
-| Client | Linux | macOS | Windows |
-|--------|:-----:|:-----:|:-------:|
-| Gemini CLI | ✓ | ✓ | ✓ |
-| Claude Desktop | ✓ | ✓ | ✓ |
-| Cursor (Cline) | ✓ | ✓ | ✓ |
-| VS Code (Cline) | ✓ | ✓ | ✓ |
-
----
-
-## 📋 Gereksinimler
-
-| Platform | Gereksinim |
-|----------|-----------|
-| Linux | Bash 4.0+, sudo yetkisi |
-| macOS | macOS 12+, Terminal, internet bağlantısı |
-| Windows | PowerShell 5.1+, internet bağlantısı |
-
----
-
-## 🛠 Geliştirme
-
-Katkıda bulunmak için fork'layıp PR açabilirsiniz.  
-Sorunlar için [Issues](https://github.com/frkntlr/yap-ai-performance/issues) bölümünü kullanın.
 
 ---
 
