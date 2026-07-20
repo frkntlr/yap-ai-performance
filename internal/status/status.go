@@ -38,6 +38,9 @@ func RunStatus(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	// 2. Config Checks
 	results = append(results, checkConfigs(p, logger)...)
 
+	// 2b. IDE skills / rules
+	results = append(results, checkIDESkills(p, logger)...)
+
 	// 3. Patch Checks
 	results = append(results, checkPatches(p, logger)...)
 
@@ -95,10 +98,23 @@ func checkTools(p *detector.Platform, logger *slog.Logger) []CheckResult {
 		Fix:    "yap install --only=deps",
 	})
 
-	// Check graphifyy[mcp] (via uv tool list or python)
+	// Check graphify (binary on PATH / ~/.local/bin, uv tool, or python package)
 	graphifyOK := false
 	graphifyDetail := "graphifyy not found or not installed in uv/python"
-	if uvOK {
+	graphifyBin := filepath.Join(p.HomeDir, ".local", "bin", "graphify")
+	if p.OS == "windows" {
+		graphifyBin = filepath.Join(p.LocalBin, "graphify.exe")
+	}
+	if _, err := os.Stat(graphifyBin); err == nil {
+		graphifyOK = true
+		graphifyDetail = fmt.Sprintf("Found at %s", graphifyBin)
+	} else if runner.Exists("graphify") {
+		graphifyOK = true
+		if path, err := exec.LookPath("graphify"); err == nil {
+			graphifyDetail = fmt.Sprintf("Found on PATH: %s", path)
+		}
+	}
+	if !graphifyOK && uvOK {
 		out, err := runner.RunAndCapture("uv", "tool", "list")
 		if err == nil && strings.Contains(out, "graphifyy") {
 			graphifyOK = true
@@ -106,7 +122,6 @@ func checkTools(p *detector.Platform, logger *slog.Logger) []CheckResult {
 		}
 	}
 	if !graphifyOK {
-		// Check python site-packages or just running it
 		pythonBin := "python3"
 		if p.OS == "windows" {
 			pythonBin = "python"
@@ -139,6 +154,7 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 		localappdata := os.Getenv("LOCALAPPDATA")
 		configPaths = []string{
 			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
+			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
 			filepath.Join(appdata, "Claude", "claude_desktop_config.json"),
 			filepath.Join(appdata, "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(localappdata, "Programs", "cursor", "resources", "app", "extensions", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
@@ -146,6 +162,7 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	} else {
 		configPaths = []string{
 			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
+			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
 			filepath.Join(p.HomeDir, ".config", "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(p.HomeDir, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(p.HomeDir, ".config", "Claude", "claude_desktop_config.json"),
@@ -153,13 +170,20 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	}
 
 	for _, path := range configPaths {
-		isGemini := strings.Contains(path, "gemini")
+		isRequired := strings.Contains(path, "gemini") ||
+			strings.HasSuffix(filepath.ToSlash(path), ".cursor/mcp.json")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if isGemini {
+			if isRequired {
+				label := "required config"
+				if strings.Contains(path, "gemini") {
+					label = "Gemini config"
+				} else if strings.Contains(path, ".cursor") {
+					label = "Cursor native MCP config"
+				}
 				results = append(results, CheckResult{
 					Name:   fmt.Sprintf("Config: %s", filepath.Base(path)),
 					OK:     false,
-					Detail: "Gemini config does not exist but is required",
+					Detail: fmt.Sprintf("%s does not exist but is required", label),
 					Fix:    "yap install --only=config",
 				})
 			}
@@ -204,6 +228,53 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 				Fix:    "yap install --only=config",
 			})
 		}
+	}
+
+	return results
+}
+
+func checkIDESkills(p *detector.Platform, logger *slog.Logger) []CheckResult {
+	if logger != nil {
+		logger.Debug("Checking IDE skills and rules")
+	}
+	var results []CheckResult
+
+	type skillCheck struct {
+		name string
+		path string
+		need string // substring that must appear in file
+	}
+	checks := []skillCheck{
+		{"Skill: Cursor /yap", filepath.Join(p.HomeDir, ".cursor", "skills", "yap", "SKILL.md"), "name: yap"},
+		{"Rule: Cursor yap", filepath.Join(p.HomeDir, ".cursor", "rules", "yap-context.mdc"), "alwaysApply: true"},
+		{"Skill: Gemini /yap", filepath.Join(p.HomeDir, ".gemini", "config", "skills", "yap", "SKILL.md"), "name: yap"},
+	}
+
+	for _, c := range checks {
+		data, err := ioutil.ReadFile(c.path)
+		if err != nil {
+			results = append(results, CheckResult{
+				Name:   c.name,
+				OK:     false,
+				Detail: fmt.Sprintf("missing: %s", c.path),
+				Fix:    "yap install --only=config",
+			})
+			continue
+		}
+		if !strings.Contains(string(data), c.need) {
+			results = append(results, CheckResult{
+				Name:   c.name,
+				OK:     false,
+				Detail: "file exists but content looks incomplete",
+				Fix:    "yap install --only=config",
+			})
+			continue
+		}
+		results = append(results, CheckResult{
+			Name:   c.name,
+			OK:     true,
+			Detail: fmt.Sprintf("Found at %s", c.path),
+		})
 	}
 
 	return results

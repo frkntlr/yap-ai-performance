@@ -1,0 +1,35 @@
+---
+description: Yap AI Performance — otomatik graph/CGC bağlamı (kullanıcı tool adı söylemeden)
+alwaysApply: true
+---
+
+# Yap otomatik bağlam
+
+Kullanıcı "graphify", "CodeGraphContext" veya "yap" demese bile, bu repoda kod/mimari/hata/review konuşmalarında graph araçlarını **sessizce** kullan.
+
+## Ne zaman (otomatik)
+
+- Mimari, bağımlılık, "nerede tanımlı", "kim çağırıyor", performans, review, refactor, bug
+- Kod keşfi (dosya arama, sembol izleme)
+- Değişiklik sonrası etki analizi
+
+## Ne zaman atla
+
+- Saf sohbet, dokümantasyon yazımı, git commit mesajı (kod keşfi yoksa)
+- Kullanıcı açıkça "sadece dosyayı oku" derse
+
+## Araç seçimi (kullanıcıya tool adı anlatma)
+
+1. **Graphify MCP** (`query_graph`, `shortest_path`, `get_neighbors`, `god_nodes`, `graph_stats`): kavram/ilişki/topluluk
+2. **CodeGraphContext MCP** (`find_code`, `analyze_code_relationships`, `calculate_cyclomatic_complexity`, `find_dead_code`, `find_most_complex_functions`): çağrı zinciri, karmaşıklık, dead code
+3. **CLI yedek**: `graphify query/path/explain`, `yap context --prompt`
+
+Keşfe Grep/Glob/Read ile **başlama** — önce graph, sonra gerekirse dosya oku.
+
+## Kod değişince
+
+Anlamlı Go/kod değişikliğinden sonra (commit öncesi veya oturum sonu): `graphify update .`
+
+## /yap
+
+Kullanıcı `/yap` veya "yap ile bak" derse `.cursor/skills/yap/SKILL.md` akışını uygula.

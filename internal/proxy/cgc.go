@@ -176,6 +176,28 @@ func forward(src io.Reader, dst io.Writer, wg *sync.WaitGroup) {
 	}
 }
 
+// resolveWorkspaceRoot tries to determine the workspace root.
+// Priority: (1) cwd if it contains .codegraphcontext_db or is a git repo,
+// (2) first initialize message from client (parsed asynchronously).
+// This function returns immediately with the best guess — no blocking.
+func resolveWorkspaceRoot(loggerInst *slog.Logger) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	// If cwd looks like a valid project dir, use it
+	for _, marker := range []string{".codegraphcontext_db", ".git", "go.mod", "package.json", "Cargo.toml", "pyproject.toml"} {
+		if _, err := os.Stat(filepath.Join(cwd, marker)); err == nil {
+			loggerInst.Info("Workspace root resolved from cwd", "cwd", cwd, "marker", marker)
+			return cwd
+		}
+	}
+
+	loggerInst.Info("No project marker found in cwd, using cwd as fallback", "cwd", cwd)
+	return cwd
+}
+
 // RunCGCProxy starts the CodeGraphContext proxy server.
 func RunCGCProxy() error {
 	homeDir, err := os.UserHomeDir()
@@ -202,33 +224,22 @@ func RunCGCProxy() error {
 
 	loggerInst.Info("CGC Proxy Wrapper started")
 
-	stdinReader := bufio.NewReader(os.Stdin)
-	headers, body, isFramed, err := readFirstMessage(stdinReader)
-	if err != nil {
-		loggerInst.Error("Error reading first message", "error", err)
-	} else if len(body) > 0 {
-		loggerInst.Debug("Intercepted first message", "body", string(body))
-	}
+	// Resolve workspace root immediately from cwd — no blocking on stdin
+	workspaceRoot := resolveWorkspaceRoot(loggerInst)
 
-	workspaceRoot := parseWorkspaceRoot(body)
-	var dbPath string
 	env := os.Environ()
-
+	var dbPath string
 	if workspaceRoot != "" {
 		dbPath = filepath.Join(workspaceRoot, ".codegraphcontext_db")
-		env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
-		loggerInst.Info("Dynamic workspace root detected", "workspaceRoot", workspaceRoot)
-		loggerInst.Info("Setting database path", "dbPath", dbPath)
 	} else {
-		dbPath = ".codegraphcontext_db"
-		env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
-		loggerInst.Info("No workspace root detected, using fallback", "dbPath", dbPath)
+		dbPath = filepath.Join(homeDir, ".codegraphcontext_db")
 	}
+	env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
+	loggerInst.Info("Database path set", "dbPath", dbPath)
 
-	// Locate codegraphcontext binary. Usually in ~/.local/bin or on PATH.
+	// Locate codegraphcontext binary
 	cgcPath := filepath.Join(homeDir, ".local", "bin", "codegraphcontext")
 	if _, err := os.Stat(cgcPath); os.IsNotExist(err) {
-		// Try system path
 		if path, err := exec.LookPath("codegraphcontext"); err == nil {
 			cgcPath = path
 		}
@@ -241,7 +252,9 @@ func RunCGCProxy() error {
 	}
 
 	cmd := exec.Command(cgcPath, cmdArgs...)
-	cmd.Dir = workspaceRoot
+	if workspaceRoot != "" {
+		cmd.Dir = workspaceRoot
+	}
 	cmd.Env = env
 	if subLogFile != nil {
 		cmd.Stderr = subLogFile
@@ -266,28 +279,13 @@ func RunCGCProxy() error {
 		return err
 	}
 
-	// Write intercepted first message back to subprocess stdin
-	if isFramed {
-		if len(headers) > 0 {
-			_, _ = subStdin.Write(headers)
-		}
-		if len(body) > 0 {
-			_, _ = subStdin.Write(body)
-		}
-	} else {
-		if len(body) > 0 {
-			if !bytes.HasSuffix(body, []byte("\n")) {
-				body = append(body, '\n')
-			}
-			_, _ = subStdin.Write(body)
-		}
-	}
+	loggerInst.Info("Subprocess started, relaying stdin/stdout")
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Stream rest of stdin to subprocess stdin
-	go forward(stdinReader, subStdin, &wg)
+	// Stream os.Stdin directly to subprocess stdin
+	go forward(os.Stdin, subStdin, &wg)
 
 	// Stream subprocess stdout to os.Stdout
 	go forward(subStdout, os.Stdout, &wg)

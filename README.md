@@ -35,6 +35,13 @@ make test
 make build-all
 ```
 
+`yap install` (config adımı) şunları da kurar:
+- MCP: Cursor (`~/.cursor/mcp.json`), Gemini, Claude, Zed, Cline
+- Cursor global `/yap` skill + rule (`~/.cursor/skills/yap`, `~/.cursor/rules`)
+- Gemini `/yap` skill
+- Çalışma dizini bir proje ise: `.cursor/skills`, `.cursor/rules`, `.cursor/mcp.json`
+- `graphify install --platform` (cursor, gemini, agents, antigravity)
+
 ---
 
 ## 🛠 Kullanım ve Komutlar
