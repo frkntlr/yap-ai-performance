@@ -11,11 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/frkntlr/yap-ai-performance/internal/detector"
 	"github.com/frkntlr/yap-ai-performance/internal/logger"
 )
 
@@ -237,11 +239,17 @@ func RunCGCProxy() error {
 	env = append(env, fmt.Sprintf("CGC_RUNTIME_DB_PATH=%s", dbPath))
 	loggerInst.Info("Database path set", "dbPath", dbPath)
 
-	// Locate codegraphcontext binary
-	cgcPath := filepath.Join(homeDir, ".local", "bin", "codegraphcontext")
-	if _, err := os.Stat(cgcPath); os.IsNotExist(err) {
+	// Locate codegraphcontext binary (Linux + Windows pipx/Scripts candidates)
+	plat, _ := detector.Detect()
+	if plat == nil {
+		plat = &detector.Platform{OS: runtime.GOOS, HomeDir: homeDir}
+	}
+	cgcPath := detector.FindCodegraphcontextBin(plat)
+	if cgcPath == "" {
 		if path, err := exec.LookPath("codegraphcontext"); err == nil {
 			cgcPath = path
+		} else {
+			cgcPath = filepath.Join(homeDir, ".local", "bin", "codegraphcontext")
 		}
 	}
 

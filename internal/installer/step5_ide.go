@@ -149,15 +149,23 @@ func detectProjectRoot() string {
 }
 
 func runGraphifyPlatformInstalls(ctx *context.RunContext) {
+	plat, _ := detector.Detect()
 	graphifyPath, err := exec.LookPath("graphify")
 	if err != nil {
-		home, _ := os.UserHomeDir()
-		candidate := filepath.Join(home, ".local", "bin", "graphify")
-		if _, statErr := os.Stat(candidate); statErr == nil {
-			graphifyPath = candidate
-		} else {
-			ctx.Logger.Info("graphify not on PATH; skipping platform skill install")
-			return
+		if plat != nil {
+			if found := detector.FindGraphifyBin(plat); found != "" {
+				graphifyPath = found
+			}
+		}
+		if graphifyPath == "" {
+			home, _ := os.UserHomeDir()
+			candidate := filepath.Join(home, ".local", "bin", "graphify")
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				graphifyPath = candidate
+			} else {
+				ctx.Logger.Info("graphify not on PATH; skipping platform skill install")
+				return
+			}
 		}
 	}
 

@@ -41,6 +41,12 @@ func Step5Config(p *detector.Platform, ctx *context.RunContext) error {
 			ctx.Logger.Warn("Failed to copy executable to target path", "error", err)
 		} else {
 			ctx.Logger.Info("Yap binary deployed successfully", "path", yapDestPath)
+			if err := detector.EnsureLocalBinOnPATH(p.LocalBin); err != nil {
+				fmt.Printf("Warning: Failed to add %s to PATH: %v\n", p.LocalBin, err)
+				ctx.Logger.Warn("Failed to ensure LocalBin on PATH", "path", p.LocalBin, "error", err)
+			} else if p.OS == "windows" {
+				fmt.Printf("✓ Ensured LocalBin on user PATH: %s\n", p.LocalBin)
+			}
 		}
 	}
 

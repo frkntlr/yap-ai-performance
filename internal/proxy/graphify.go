@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/frkntlr/yap-ai-performance/internal/detector"
 	"github.com/frkntlr/yap-ai-performance/internal/logger"
 )
 
@@ -148,24 +149,19 @@ func RunGraphifyProxy() error {
 	var pythonBin string
 	var cmdArgs []string
 
-	if runtime.GOOS == "windows" {
-		// On windows, find python from path or default winget locations
-		pythonBin = "python"
-		// If uv environment is used, it could be located in uv tools
-		localAppData := os.Getenv("LOCALAPPDATA")
-		uvPython := filepath.Join(localAppData, "Programs", "uv", "tools", "graphifyy", "Scripts", "python.exe")
-		if _, err := os.Stat(uvPython); err == nil {
-			pythonBin = uvPython
-		}
-		cmdArgs = []string{"-m", "graphify.serve", graphPath}
-	} else {
-		pythonBin = filepath.Join(homeDir, ".local", "share", "uv", "tools", "graphifyy", "bin", "python")
-		if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
-			// Fallback
+	plat, _ := detector.Detect()
+	if plat == nil {
+		plat = &detector.Platform{OS: runtime.GOOS, HomeDir: homeDir}
+	}
+	pythonBin = detector.FindGraphifyPython(plat)
+	if pythonBin == "" {
+		if runtime.GOOS == "windows" {
+			pythonBin = "python"
+		} else {
 			pythonBin = "python3"
 		}
-		cmdArgs = []string{"-m", "graphify.serve", graphPath}
 	}
+	cmdArgs = []string{"-m", "graphify.serve", graphPath}
 
 	if len(os.Args) > 3 {
 		cmdArgs = append(cmdArgs, os.Args[3:]...)

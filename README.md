@@ -35,6 +35,37 @@ make test
 make build-all
 ```
 
+### Windows
+Önerilen yol: Go binary + `yap install` (Linux/macOS ile aynı kurulum motoru).
+
+```powershell
+# 1) Binary hazırla (birini seçin)
+#    a) Önceden derlenmiş: dist\yap-windows-amd64.exe
+#    b) Kaynaktan: go build -o dist\yap-windows-amd64.exe .\cmd\yap
+
+# 2) Bootstrap (deps yoksa kurar, ardından yap install çalıştırır)
+powershell -ExecutionPolicy Bypass -File install.ps1
+
+# Simülasyon
+powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun
+
+# 3) Doğrula
+yap status
+```
+
+`yap install` binary’yi `%LOCALAPPDATA%\Programs\yap\yap.exe` altına koyar ve bu dizini kullanıcı PATH’ine ekler. MCP istemcileri absolute path kullanır; yeni bir terminal açmanız gerekebilir.
+
+### Linux / macOS
+```bash
+# Linux
+bash install.sh
+# veya derlenmiş binary ile
+./dist/yap-linux-amd64 install
+
+# macOS
+bash install_mac.sh
+```
+
 `yap install` (config adımı) şunları da kurar:
 - MCP: Cursor (`~/.cursor/mcp.json`), Gemini, Claude, Zed, Cline
 - Cursor global `/yap` skill + rule (`~/.cursor/skills/yap`, `~/.cursor/rules`)

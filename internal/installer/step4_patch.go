@@ -15,15 +15,19 @@ import (
 
 // Step4Patch applies necessary runtime patches to CodeGraphContext codebase.
 func Step4Patch(p *detector.Platform, ctx *context.RunContext) error {
-	venvDir := filepath.Join(p.HomeDir, ".local", "share", "pipx", "venvs", "codegraphcontext")
-
-	if _, err := os.Stat(venvDir); os.IsNotExist(err) {
+	venvDir := detector.FindPipxVenv(p)
+	if venvDir == "" {
+		candidates := detector.PipxVenvDirs(p)
+		hint := filepath.Join(p.HomeDir, ".local", "share", "pipx", "venvs", "codegraphcontext")
+		if len(candidates) > 0 {
+			hint = candidates[0]
+		}
 		if ctx.DryRun {
-			dryrun.PrintSimulation(fmt.Sprintf("codegraphcontext pipx venv patches at %s will be simulated", venvDir))
-			ctx.Logger.Info("Venv directory does not exist, simulating patches", "venvDir", venvDir)
+			dryrun.PrintSimulation(fmt.Sprintf("codegraphcontext pipx venv patches at %s will be simulated", hint))
+			ctx.Logger.Info("Venv directory does not exist, simulating patches", "venvDir", hint, "candidates", candidates)
 			return nil
 		}
-		return fmt.Errorf("codegraphcontext pipx venv not found at %s. Please install tools first", venvDir)
+		return fmt.Errorf("codegraphcontext pipx venv not found (searched %v). Please install tools first", candidates)
 	}
 
 	var serverPy string

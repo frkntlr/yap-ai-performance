@@ -63,11 +63,7 @@ func checkTools(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	// Check codegraphcontext
 	cgcOK := false
 	cgcDetail := "codegraphcontext binary not found on PATH"
-	cgcPath := filepath.Join(p.HomeDir, ".local", "bin", "codegraphcontext")
-	if p.OS == "windows" {
-		cgcPath = filepath.Join(p.LocalBin, "codegraphcontext.exe") // or standard python location
-	}
-	if _, err := os.Stat(cgcPath); err == nil {
+	if cgcPath := detector.FindCodegraphcontextBin(p); cgcPath != "" {
 		cgcOK = true
 		cgcDetail = fmt.Sprintf("Found at %s", cgcPath)
 	} else if runner.Exists("codegraphcontext") {
@@ -101,11 +97,7 @@ func checkTools(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	// Check graphify (binary on PATH / ~/.local/bin, uv tool, or python package)
 	graphifyOK := false
 	graphifyDetail := "graphifyy not found or not installed in uv/python"
-	graphifyBin := filepath.Join(p.HomeDir, ".local", "bin", "graphify")
-	if p.OS == "windows" {
-		graphifyBin = filepath.Join(p.LocalBin, "graphify.exe")
-	}
-	if _, err := os.Stat(graphifyBin); err == nil {
+	if graphifyBin := detector.FindGraphifyBin(p); graphifyBin != "" {
 		graphifyOK = true
 		graphifyDetail = fmt.Sprintf("Found at %s", graphifyBin)
 	} else if runner.Exists("graphify") {
@@ -286,17 +278,12 @@ func checkPatches(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	}
 	var results []CheckResult
 
-	// Try to find the site-packages codegraphcontext path
-	venvDir := filepath.Join(p.HomeDir, ".local", "share", "pipx", "venvs", "codegraphcontext")
-	if p.OS == "windows" {
-		venvDir = filepath.Join(p.HomeDir, ".local", "share", "pipx", "venvs", "codegraphcontext")
-	}
-
-	if _, err := os.Stat(venvDir); os.IsNotExist(err) {
+	venvDir := detector.FindPipxVenv(p)
+	if venvDir == "" {
 		results = append(results, CheckResult{
 			Name:   "Patches",
 			OK:     false,
-			Detail: "codegraphcontext pipx venv not found. Cannot check patches.",
+			Detail: fmt.Sprintf("codegraphcontext pipx venv not found (searched %v). Cannot check patches.", detector.PipxVenvDirs(p)),
 			Fix:    "yap install --only=tools",
 		})
 		return results
