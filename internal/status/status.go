@@ -2,6 +2,7 @@ package status
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -139,53 +140,74 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 		logger.Debug("Checking MCP configuration files status")
 	}
 	var results []CheckResult
-	var configPaths []string
+
+	type cfgCheck struct {
+		name     string
+		path     string
+		required bool
+		merge    bool // read via Merge-safe helper (Claude Code ~/.claude.json)
+	}
+
+	checks := []cfgCheck{
+		{"Config: Cursor MCP", filepath.Join(p.HomeDir, ".cursor", "mcp.json"), true, false},
+		{"Config: Gemini/Antigravity MCP", filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"), true, false},
+		{"Config: Claude Code user MCP", filepath.Join(p.HomeDir, ".claude.json"), true, true},
+	}
 
 	if p.OS == "windows" {
 		appdata := os.Getenv("APPDATA")
-		localappdata := os.Getenv("LOCALAPPDATA")
-		configPaths = []string{
-			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
-			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
-			filepath.Join(appdata, "Claude", "claude_desktop_config.json"),
-			filepath.Join(appdata, "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(localappdata, "Programs", "cursor", "resources", "app", "extensions", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-		}
+		checks = append(checks,
+			cfgCheck{"Config: Claude Desktop", filepath.Join(appdata, "Claude", "claude_desktop_config.json"), false, false},
+		)
 	} else {
-		configPaths = []string{
-			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
-			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
-			filepath.Join(p.HomeDir, ".config", "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(p.HomeDir, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(p.HomeDir, ".config", "Claude", "claude_desktop_config.json"),
+		checks = append(checks,
+			cfgCheck{"Config: Claude Desktop", filepath.Join(p.HomeDir, ".config", "Claude", "claude_desktop_config.json"), false, false},
+		)
+		if p.OS == "darwin" {
+			checks = append(checks, cfgCheck{
+				"Config: Claude Desktop (macOS)",
+				filepath.Join(p.HomeDir, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
+				false, false,
+			})
 		}
 	}
 
-	for _, path := range configPaths {
-		isRequired := strings.Contains(path, "gemini") ||
-			strings.HasSuffix(filepath.ToSlash(path), ".cursor/mcp.json")
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if isRequired {
-				label := "required config"
-				if strings.Contains(path, "gemini") {
-					label = "Gemini config"
-				} else if strings.Contains(path, ".cursor") {
-					label = "Cursor native MCP config"
-				}
+	// Project-scoped configs when cwd is inside a project
+	if root := detectStatusProjectRoot(); root != "" {
+		checks = append(checks,
+			cfgCheck{"Config: project .mcp.json", filepath.Join(root, ".mcp.json"), true, false},
+			cfgCheck{"Config: project .agents MCP", filepath.Join(root, ".agents", "mcp_config.json"), true, false},
+			cfgCheck{"Config: project Cursor MCP", filepath.Join(root, ".cursor", "mcp.json"), true, false},
+		)
+	}
+
+	for _, c := range checks {
+		if _, err := os.Stat(c.path); os.IsNotExist(err) {
+			if c.required {
 				results = append(results, CheckResult{
-					Name:   fmt.Sprintf("Config: %s", filepath.Base(path)),
+					Name:   c.name,
 					OK:     false,
-					Detail: fmt.Sprintf("%s does not exist but is required", label),
+					Detail: fmt.Sprintf("does not exist: %s", c.path),
 					Fix:    "yap install --only=config",
 				})
 			}
 			continue
 		}
 
-		cfg, err := jsonutil.ReadOrCreate(path)
+		var servers map[string]jsonutil.MCPServer
+		var err error
+		if c.merge {
+			servers, err = jsonutil.ReadMCPServersFromFile(c.path)
+		} else {
+			cfg, e := jsonutil.ReadOrCreate(c.path)
+			err = e
+			if cfg != nil {
+				servers = cfg.MCPServers
+			}
+		}
 		if err != nil {
 			results = append(results, CheckResult{
-				Name:   fmt.Sprintf("Config: %s", filepath.Base(path)),
+				Name:   c.name,
 				OK:     false,
 				Detail: fmt.Sprintf("Error reading config: %v", err),
 				Fix:    "yap install --only=config",
@@ -193,15 +215,14 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 			continue
 		}
 
-		cgcServer, cgcExist := cfg.MCPServers["CodeGraphContext"]
-		graphifyServer, graphifyExist := cfg.MCPServers["Graphify"]
-
-		cgcValid := cgcExist && strings.Contains(cgcServer.Command, "yap") && len(cgcServer.Args) > 0 && cgcServer.Args[0] == "proxy" && cgcServer.Args[1] == "cgc"
-		graphifyValid := graphifyExist && strings.Contains(graphifyServer.Command, "yap") && len(graphifyServer.Args) > 0 && graphifyServer.Args[0] == "proxy" && graphifyServer.Args[1] == "graphify"
+		cgcServer, cgcExist := servers["CodeGraphContext"]
+		graphifyServer, graphifyExist := servers["Graphify"]
+		cgcValid := cgcExist && strings.Contains(cgcServer.Command, "yap") && len(cgcServer.Args) >= 2 && cgcServer.Args[0] == "proxy" && cgcServer.Args[1] == "cgc"
+		graphifyValid := graphifyExist && strings.Contains(graphifyServer.Command, "yap") && len(graphifyServer.Args) >= 2 && graphifyServer.Args[0] == "proxy" && graphifyServer.Args[1] == "graphify"
 
 		if cgcValid && graphifyValid {
 			results = append(results, CheckResult{
-				Name:   fmt.Sprintf("Config: %s", filepath.Base(path)),
+				Name:   c.name,
 				OK:     true,
 				Detail: "CodeGraphContext & Graphify properly configured to use yap proxy",
 			})
@@ -214,7 +235,7 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 				details = append(details, "Graphify missing or not pointing to 'yap proxy graphify'")
 			}
 			results = append(results, CheckResult{
-				Name:   fmt.Sprintf("Config: %s", filepath.Base(path)),
+				Name:   c.name,
 				OK:     false,
 				Detail: strings.Join(details, ", "),
 				Fix:    "yap install --only=config",
@@ -222,7 +243,95 @@ func checkConfigs(p *detector.Platform, logger *slog.Logger) []CheckResult {
 		}
 	}
 
+	results = append(results, checkZedContextServers(p)...)
 	return results
+}
+
+func checkZedContextServers(p *detector.Platform) []CheckResult {
+	var path string
+	if p.OS == "windows" {
+		path = filepath.Join(os.Getenv("APPDATA"), "Zed", "settings.json")
+	} else {
+		path = filepath.Join(p.HomeDir, ".config", "zed", "settings.json")
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return []CheckResult{{
+			Name:   "Config: Zed context_servers",
+			OK:     false,
+			Detail: fmt.Sprintf("missing: %s", path),
+			Fix:    "yap install --only=config",
+		}}
+	}
+	clean := data
+	var settings map[string]interface{}
+	if err := json.Unmarshal(clean, &settings); err != nil {
+		// Zed may have comments; best-effort: treat as incomplete
+		return []CheckResult{{
+			Name:   "Config: Zed context_servers",
+			OK:     false,
+			Detail: "could not parse settings.json",
+			Fix:    "yap install --only=config",
+		}}
+	}
+	cs, _ := settings["context_servers"].(map[string]interface{})
+	okCGC := zedEntryLooksLikeYap(cs, "yap-cgc", "cgc")
+	okG := zedEntryLooksLikeYap(cs, "yap-graphify", "graphify")
+	if okCGC && okG {
+		return []CheckResult{{
+			Name:   "Config: Zed context_servers",
+			OK:     true,
+			Detail: fmt.Sprintf("Found at %s", path),
+		}}
+	}
+	return []CheckResult{{
+		Name:   "Config: Zed context_servers",
+		OK:     false,
+		Detail: "yap-cgc / yap-graphify missing or misconfigured",
+		Fix:    "yap install --only=config",
+	}}
+}
+
+func zedEntryLooksLikeYap(cs map[string]interface{}, key, proxy string) bool {
+	if cs == nil {
+		return false
+	}
+	m, ok := cs[key].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	cmd, _ := m["command"].(string)
+	if !strings.Contains(cmd, "yap") {
+		return false
+	}
+	args, ok := m["args"].([]interface{})
+	if !ok || len(args) < 2 {
+		return false
+	}
+	a0, _ := args[0].(string)
+	a1, _ := args[1].(string)
+	return a0 == "proxy" && a1 == proxy
+}
+
+func detectStatusProjectRoot() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	dir := cwd
+	for {
+		for _, marker := range []string{".git", "go.mod", "package.json", "Cargo.toml", "pyproject.toml", ".codegraphcontext_db"} {
+			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 func checkIDESkills(p *detector.Platform, logger *slog.Logger) []CheckResult {
@@ -234,12 +343,21 @@ func checkIDESkills(p *detector.Platform, logger *slog.Logger) []CheckResult {
 	type skillCheck struct {
 		name string
 		path string
-		need string // substring that must appear in file
+		need string
 	}
 	checks := []skillCheck{
 		{"Skill: Cursor /yap", filepath.Join(p.HomeDir, ".cursor", "skills", "yap", "SKILL.md"), "name: yap"},
 		{"Rule: Cursor yap", filepath.Join(p.HomeDir, ".cursor", "rules", "yap-context.mdc"), "alwaysApply: true"},
 		{"Skill: Gemini /yap", filepath.Join(p.HomeDir, ".gemini", "config", "skills", "yap", "SKILL.md"), "name: yap"},
+		{"Skill: Claude Code /yap", filepath.Join(p.HomeDir, ".claude", "skills", "yap", "SKILL.md"), "name: yap"},
+		{"Skill: Agents /yap", filepath.Join(p.HomeDir, ".agents", "skills", "yap", "SKILL.md"), "name: yap"},
+	}
+	if root := detectStatusProjectRoot(); root != "" {
+		checks = append(checks,
+			skillCheck{"Skill: project Claude /yap", filepath.Join(root, ".claude", "skills", "yap", "SKILL.md"), "name: yap"},
+			skillCheck{"Skill: project Agents /yap", filepath.Join(root, ".agents", "skills", "yap", "SKILL.md"), "name: yap"},
+			skillCheck{"Skill: project Cursor /yap", filepath.Join(root, ".cursor", "skills", "yap", "SKILL.md"), "name: yap"},
+		)
 	}
 
 	for _, c := range checks {
@@ -391,7 +509,7 @@ func testProxyLiveness(yapBin, service string, logger *slog.Logger) CheckResult 
 		logger.Debug("Testing proxy liveness", "service", service, "yapBin", yapBin)
 	}
 	cmd := exec.Command(yapBin, "proxy", service)
-	
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return CheckResult{
@@ -423,7 +541,7 @@ func testProxyLiveness(yapBin, service string, logger *slog.Logger) CheckResult 
 
 	// Send an initialize request JSON-RPC
 	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"processId":1234,"clientInfo":{"name":"status-check","version":"1.0.0"}}}`
-	
+
 	// Format as LSP framed if necessary, but raw JSON is also supported by our proxy.
 	// Write raw JSON.
 	_, _ = io.WriteString(stdin, initReq+"\n")

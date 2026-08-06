@@ -1,129 +1,122 @@
-# Yap AI Performance CLI
+# Yap AI Performance
 
-> **Linux**, **macOS** ve **Windows** platformları için Go (Golang) ile geliştirilmiş, sıfır dış bağımlılıklı, yüksek performanslı ve akıllı bir MCP (Model Context Protocol) Server yönetim, optimizasyon ve bağlam (context) CLI aracı.
+Linux, macOS ve Windows için Go ile yazılmış MCP (Model Context Protocol) yönetim, kurulum ve bağlam CLI aracı.
 
----
-
-## 🚀 Temel Özellikler
-
-- **Tekil Yürütülebilir Dosya (Single Executable):** Go ile derlenen, herhangi bir harici bağımlılığa ihtiyaç duymayan tek bir binary dosyası ile kolay dağıtım.
-- **Akıllı Bağlam Farkındalığı (`yap context`):** Çalıştırıldığı dizindeki projeyi (Go, JavaScript/TypeScript, Rust, Python, Java) tarar, git durumunu (`git diff --stat`) analiz eder ve yapay zeka modelleri için optimize edilmiş dinamik sistem promptu üretir.
-- **Özelleştirme ve Kısayollar (Custom Aliases):** Global (`~/.yaprc`) veya yerel (`./.yaprc`) yapılandırma dosyaları üzerinden sık tekrarlanan uzun prompt görevlerini (`yap code-review`, `yap explain` vb.) bağlam duyarlı kısayol komutlarına bağlar.
-- **Güvenlik ve Gözlemlenebilirlik (Safety & Logging):**
-  - **Dry-Run Modu (`--dry-run`):** Yapılacak işlemleri gerçekten uygulamadan önce güvenli bir şekilde simüle eder.
-  - **Otomatik Yedekleme ve Rollback (`yap rollback`):** Düzenlenen her ayar dosyasının otomatik yedeğini alır ve tek tuşla geri yüklenmesini sağlar.
-  - **slog Günlükleme:** Arka plan proxy ve kurulum süreçlerini `~/.yap/logs/` altında günlük log dosyalarına JSON formatında detaylıca kaydeder.
-- **Çevre Değişkenleri ve `.env` Desteği:** Çalışma dizinindeki `.env` dosyasını sıfır bağımlılıkla yükleyip `YAP_` ön ekli ayar değişkenlerini ezer.
-- **Aktif Sistem Teşhisi (`yap status`):** Sistem gereksinimleri, yüklü paketler, CGC yama durumları ve aktif port/servis kontrollerini gerçekleştirir.
-- **Go-Native JSON-RPC Proxy:** CodeGraphContext ve Graphify sunucularını yöneten, log dönen kararlı proxy katmanı.
+`yap install` tek komutla CodeGraphContext + Graphify araçlarını kurar, gerekli yamaları uygular, `yap` proxy binary’sini yerleştirir ve **Cursor, Zed, Antigravity/Gemini, Claude Code** (ve varsa Claude Desktop / Cline) için MCP + `/yap` skill yapılandırmasını yazar.
 
 ---
 
-## 💻 Kurulum ve Dağıtım
+## Nedir?
 
-### Derleme (Build)
-Uygulamayı yerel olarak derlemek için aşağıdaki komutları kullanabilirsiniz:
+- **Tek binary:** Harici runtime gerektirmez (CGC/Graphify Python araçları pipx/uv ile kurulur).
+- **Go-native proxy:** `yap proxy cgc` ve `yap proxy graphify` — IDE’lerin konuştuğu MCP uçları.
+- **`yap context`:** Proje tarama + git diff ile AI’ya hazır sistem promptu.
+- **`yap status`:** Araçlar, yamalar, MCP config’ler, skill’ler ve proxy canlılık kontrolü.
+- **Güvenlik:** `--dry-run`, otomatik yedekleme, `yap rollback`.
+
+---
+
+## Hızlı başlangıç
+
+### Linux
 
 ```bash
-# Bağımlılıkları kontrol et ve statik analiz çalıştır
-go vet ./...
+bash install.sh
+# veya
+go build -o dist/yap-linux-amd64 ./cmd/yap
+./dist/yap-linux-amd64 install
+yap status
+```
 
-# Birim testlerini çalıştır
-make test
+### macOS
 
-# Tüm platformlar için derleme yap (dist/ klasörü altına çıktılar oluşturulur)
-make build-all
+```bash
+bash install_mac.sh
+# veya derlenmiş binary ile: yap install
 ```
 
 ### Windows
-Önerilen yol: Go binary + `yap install` (Linux/macOS ile aynı kurulum motoru).
 
 ```powershell
-# 1) Binary hazırla (birini seçin)
-#    a) Önceden derlenmiş: dist\yap-windows-amd64.exe
-#    b) Kaynaktan: go build -o dist\yap-windows-amd64.exe .\cmd\yap
-
-# 2) Bootstrap (deps yoksa kurar, ardından yap install çalıştırır)
+# dist\yap-windows-amd64.exe hazır olsun veya Go ile derleyin
 powershell -ExecutionPolicy Bypass -File install.ps1
-
-# Simülasyon
-powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun
-
-# 3) Doğrula
 yap status
 ```
 
-`yap install` binary’yi `%LOCALAPPDATA%\Programs\yap\yap.exe` altına koyar ve bu dizini kullanıcı PATH’ine ekler. MCP istemcileri absolute path kullanır; yeni bir terminal açmanız gerekebilir.
+Binary konumu: `%LOCALAPPDATA%\Programs\yap\yap.exe` (PATH’e eklenir).
 
-### Linux / macOS
-```bash
-# Linux
-bash install.sh
-# veya derlenmiş binary ile
-./dist/yap-linux-amd64 install
-
-# macOS
-bash install_mac.sh
-```
-
-`yap install` (config adımı) şunları da kurar:
-- MCP: Cursor (`~/.cursor/mcp.json`), Gemini, Claude, Zed, Cline
-- Cursor global `/yap` skill + rule (`~/.cursor/skills/yap`, `~/.cursor/rules`)
-- Gemini `/yap` skill
-- Çalışma dizini bir proje ise: `.cursor/skills`, `.cursor/rules`, `.cursor/mcp.json`
-- `graphify install --platform` (cursor, gemini, agents, antigravity)
+Detay: [docs/install.md](docs/install.md)
 
 ---
 
-## 🛠 Kullanım ve Komutlar
+## Desteklenen IDE’ler
 
-### 1. Kurulum (`yap install`)
-Sistem gereksinimlerini kontrol eder, `pipx` veya `uv` üzerinden CodeGraphContext ve Graphify araçlarını kurar ve gerekli KuzuDB/Protokol yamalarını uygular.
+| IDE | MCP | /yap skill | Not |
+|-----|-----|------------|-----|
+| **Cursor** | `~/.cursor/mcp.json` + proje `.cursor/mcp.json` | skill + always-apply rule | Agent için zorunlu global MCP |
+| **Zed** | `context_servers` (global + proje `.zed/settings.json`) | — | Yoksa settings oluşturulur |
+| **Antigravity / Gemini** | `~/.gemini/config/mcp_config.json` + proje `.agents/mcp_config.json` | `~/.gemini/config/skills` + `.agents/skills` | Workspace + global |
+| **Claude Code** | `~/.claude.json` (`mcpServers` merge) + proje `.mcp.json` | `~/.claude/skills` + `.claude/skills` | State dosyası silinmez |
+| **Claude Desktop** | `claude_desktop_config.json` | — | Yalnızca dosya varsa güncellenir |
+| **Cline** | mevcut settings | — | Yalnızca dosya varsa |
 
-```bash
-yap install
-# Simülasyon modu
-yap install --dry-run
-# Yalnızca konfigürasyon adımı
-yap install --only=config
-```
+Kurulumdan sonra ilgili IDE’yi **yeniden başlatın** (veya MCP listesini yenileyin). Ayrıntılar: [docs/ides.md](docs/ides.md)
 
-### 2. Teşhis ve Sağlık Kontrolü (`yap status`)
-Kurulu bileşenleri ve yama durumlarını aktif olarak test eder.
+---
 
-```bash
-yap status
-```
-
-### 3. Geri Yükleme (`yap rollback`)
-Yapılan konfigürasyon değişikliklerini otomatik olarak yedeklenen son kararlı sürüme geri döndürür.
+## Komutlar
 
 ```bash
-yap rollback
+yap install                 # tam kurulum
+yap install --dry-run       # simülasyon
+yap install --only=config   # yalnızca MCP/skill/binary
+yap status                  # sağlık kontrolü
+yap context --prompt        # AI sistem promptu
+yap rollback                # son config yedeğine dön
 ```
 
-### 4. Bağlam Analizi (`yap context`)
-Çalışma dizinindeki proje yapısını ve Git değişikliklerini analiz eder.
+Tam referans: [docs/commands.md](docs/commands.md)
 
-```bash
-# Özet raporu basar
-yap context
+---
 
-# AI modeline beslenecek sistem promptunu stdout'a yazar
-yap context --prompt
+## `/yap` nedir?
 
-# Git diff detaylarını prompta dahil eder
-yap context --prompt --with-diff
+Cursor / Claude Code / Agents skill’i olarak yüklenen orkestrasyon akışı:
 
-# Prompt çıktısını kaydeder (varsayılan konuma: ~/.yap/context.md)
-yap context --prompt --save
+1. `yap status` / `yap context` ile bootstrap  
+2. Graphify + CodeGraphContext MCP araçlarıyla mimari, caller/callee, karmaşıklık analizi  
+3. Kısa bulgu → kanıt → aksiyon  
 
-# JSON formatında çıktı verir
-yap context --json
+Skill dosyası `yap install --only=config` ile global ve proje dizinlerine yazılır.
+
+---
+
+## Dokümantasyon
+
+| Belge | İçerik |
+|-------|--------|
+| [docs/README.md](docs/README.md) | Doküman indeksi |
+| [docs/install.md](docs/install.md) | Kurulum, dry-run, `--only` |
+| [docs/ides.md](docs/ides.md) | IDE path’leri ve doğrulama |
+| [docs/commands.md](docs/commands.md) | CLI referansı |
+| [docs/architecture.md](docs/architecture.md) | Proxy + install pipeline |
+
+---
+
+## Yapılandırma (`.yaprc`)
+
+Global `~/.yaprc` veya proje `.yaprc`:
+
+```json
+{
+  "default_model": "gemini-1.5-flash",
+  "log_level": "INFO",
+  "aliases": {
+    "code-review": "Değişikliklerin Big O ve bellek etkisini analiz et.",
+    "explain": "Bu kodu adım adım açıkla."
+  }
+}
 ```
-
-### 5. Özel Kısayollar (Örn: `yap code-review`)
-`.yaprc` dosyanızda tanımladığınız özel takma adlar (aliases) dinamik olarak birer alt komuta dönüşür:
 
 ```bash
 yap code-review --with-diff
@@ -131,54 +124,21 @@ yap code-review --with-diff
 
 ---
 
-## ⚙️ Yapılandırma (`.yaprc`)
+## Dizin yapısı
 
-Kişisel ayarlarınızı, varsayılan modellerinizi ve takma adlarınızı `~/.yaprc` (global) veya proje dizinindeki `.yaprc` (yerel) dosyasında tutabilirsiniz:
-
-```json
-{
-  "default_model": "gemini-1.5-flash",
-  "log_level": "INFO",
-  "aliases": {
-    "code-review": "Lütfen aşağıdaki değişikliklerin zaman karmaşıklığını (Big O) hesapla ve bellek sızıntılarını analiz et.",
-    "explain": "Bu kod parçasının ne yaptığını adım adım anlat."
-  }
-}
 ```
+cmd/yap/            CLI giriş
+internal/installer/ Kurulum adımları (MCP, skills, patch)
+internal/proxy/     CGC / Graphify proxy
+internal/status/    yap status
+internal/detector/  OS + path adayları
+docs/               Kullanıcı dokümantasyonu
+```
+
+Mimari özeti: [docs/architecture.md](docs/architecture.md)
 
 ---
 
-## 📁 Proje Dizin Yapısı
-
-```
-.
-├── cmd/
-│   └── yap/
-│       └── main.go           # CLI Giriş Noktası ve Komut Yönetimi
-├── internal/
-│   ├── backup/               # Güvenli zaman damgalı yedekleme ve rollback modülü
-│   ├── config/               # Katmanlı JSON tabanlı .yaprc yapılandırma yöneticisi
-│   ├── confirm/              # bufio tabanlı kullanıcı onay arayüzü
-│   ├── detector/             # İşletim sistemi ve paket yöneticisi tespiti
-│   ├── dryrun/               # Değişiklik simülasyon çıktıları
-│   ├── env/                  # Sıfır dış bağımlılıklı .env ayrıştırıcısı
-│   ├── gitinfo/              # os/exec tabanlı git status/diff stat analizörü
-│   ├── installer/            # 6 adımlı sırayla kurulum adımları
-│   ├── logger/               # slog tabanlı dual (JSON/Terminal) loglama sistemi
-│   ├── proxy/                # Go-native transparent JSON-RPC proxy
-│   └── scanner/              # Proje teknoloji ve bağımlılık tarayıcısı
-├── pkg/
-│   ├── fileutil/             # Dosya kopyalama ve arama yardımcıları
-│   ├── jsonutil/             # JSON okuma/yazma yardımcıları
-│   ├── promptbuilder/        # Dinamik prompt şablon mimarisi
-│   └── runner/               # Komut çalıştırma ve çıktı yakalama araçları
-├── Makefile                  # Çoklu platform derleme komutları
-├── go.mod
-└── README.md
-```
-
----
-
-## 📄 Lisans
+## Lisans
 
 MIT License — © 2026 frkntlr

@@ -10,12 +10,13 @@ import (
 	"github.com/frkntlr/yap-ai-performance/internal/context"
 	"github.com/frkntlr/yap-ai-performance/internal/detector"
 	"github.com/frkntlr/yap-ai-performance/internal/dryrun"
-	"github.com/frkntlr/yap-ai-performance/pkg/jsonutil"
 )
 
-// installIDESkillsAndRules deploys /yap skills, always-apply rules, project MCP,
+// installIDESkillsAndRules deploys /yap skills, always-apply rules,
 // and graphify platform hooks so IDEs pick up the stack automatically.
+// Project MCP files are written by Step5Config via mcpTargets.
 func installIDESkillsAndRules(p *detector.Platform, ctx *context.RunContext, yapDestPath string) error {
+	_ = yapDestPath // MCP paths handled in Step5Config
 	fmt.Println("Installing IDE skills & rules (/yap)...")
 
 	cursorSkill, err := assetBytes("cursor_yap_skill.md")
@@ -36,14 +37,11 @@ func installIDESkillsAndRules(p *detector.Platform, ctx *context.RunContext, yap
 		data []byte
 		desc string
 	}{
-		// Global Cursor skill → /yap everywhere
 		{filepath.Join(p.HomeDir, ".cursor", "skills", "yap", "SKILL.md"), cursorSkill, "Cursor global /yap skill"},
-		// Global Cursor rule (best-effort; project rule is authoritative)
 		{filepath.Join(p.HomeDir, ".cursor", "rules", "yap-context.mdc"), cursorRule, "Cursor global yap rule"},
-		// Gemini / Antigravity-style skill
-		{filepath.Join(p.HomeDir, ".gemini", "config", "skills", "yap", "SKILL.md"), geminiSkill, "Gemini /yap skill"},
-		// Agents-compatible skill path (Codex/OpenCode ecosystem)
+		{filepath.Join(p.HomeDir, ".gemini", "config", "skills", "yap", "SKILL.md"), geminiSkill, "Gemini/Antigravity /yap skill"},
 		{filepath.Join(p.HomeDir, ".agents", "skills", "yap", "SKILL.md"), cursorSkill, "Agents /yap skill"},
+		{filepath.Join(p.HomeDir, ".claude", "skills", "yap", "SKILL.md"), cursorSkill, "Claude Code personal /yap skill"},
 	}
 
 	for _, t := range targets {
@@ -53,7 +51,6 @@ func installIDESkillsAndRules(p *detector.Platform, ctx *context.RunContext, yap
 		}
 	}
 
-	// Project-local Cursor scaffold when cwd looks like a repo/workspace
 	if root := detectProjectRoot(); root != "" {
 		projTargets := []struct {
 			path string
@@ -62,6 +59,8 @@ func installIDESkillsAndRules(p *detector.Platform, ctx *context.RunContext, yap
 		}{
 			{filepath.Join(root, ".cursor", "skills", "yap", "SKILL.md"), cursorSkill, "project Cursor /yap skill"},
 			{filepath.Join(root, ".cursor", "rules", "yap-context.mdc"), cursorRule, "project Cursor yap rule"},
+			{filepath.Join(root, ".agents", "skills", "yap", "SKILL.md"), cursorSkill, "project Antigravity/Agents /yap skill"},
+			{filepath.Join(root, ".claude", "skills", "yap", "SKILL.md"), cursorSkill, "project Claude Code /yap skill"},
 		}
 		for _, t := range projTargets {
 			if err := writeManagedFile(ctx, t.path, t.data, t.desc); err != nil {
@@ -69,12 +68,8 @@ func installIDESkillsAndRules(p *detector.Platform, ctx *context.RunContext, yap
 				ctx.Logger.Warn("Failed to write project IDE asset", "desc", t.desc, "path", t.path, "error", err)
 			}
 		}
-		if err := writeProjectCursorMCP(ctx, root, yapDestPath); err != nil {
-			fmt.Printf("Warning: project Cursor MCP: %v\n", err)
-			ctx.Logger.Warn("Failed to write project Cursor MCP", "error", err)
-		}
 	} else {
-		ctx.Logger.Info("No project root detected; skipped project .cursor scaffold")
+		ctx.Logger.Info("No project root detected; skipped project skill scaffold")
 	}
 
 	runGraphifyPlatformInstalls(ctx)
@@ -101,29 +96,6 @@ func writeManagedFile(ctx *context.RunContext, path string, data []byte, desc st
 	}
 	fmt.Printf("✓ %s → %s\n", desc, path)
 	ctx.Logger.Info("IDE asset written", "desc", desc, "path", path)
-	return nil
-}
-
-func writeProjectCursorMCP(ctx *context.RunContext, root, yapDestPath string) error {
-	path := filepath.Join(root, ".cursor", "mcp.json")
-	cfg, err := jsonutil.ReadOrCreate(path)
-	if err != nil {
-		return err
-	}
-	cfg.MCPServers["CodeGraphContext"] = jsonutil.MCPServer{
-		Command: yapDestPath,
-		Args:    []string{"proxy", "cgc"},
-	}
-	cfg.MCPServers["Graphify"] = jsonutil.MCPServer{
-		Command: yapDestPath,
-		Args:    []string{"proxy", "graphify"},
-	}
-	if err := jsonutil.Write(ctx.DryRun, path, cfg); err != nil {
-		return err
-	}
-	if !ctx.DryRun {
-		fmt.Printf("✓ project Cursor MCP → %s\n", path)
-	}
 	return nil
 }
 
@@ -169,24 +141,23 @@ func runGraphifyPlatformInstalls(ctx *context.RunContext) {
 		}
 	}
 
-	// Install graphify's own IDE hooks where the binary supports them.
-	platforms := []string{"cursor", "gemini", "agents", "antigravity"}
-	for _, plat := range platforms {
+	platforms := []string{"cursor", "gemini", "agents", "antigravity", "claude"}
+	for _, platName := range platforms {
 		if ctx.DryRun {
-			dryrun.PrintSimulation(fmt.Sprintf("graphify install --platform %s", plat))
+			dryrun.PrintSimulation(fmt.Sprintf("graphify install --platform %s", platName))
 			continue
 		}
-		cmd := exec.Command(graphifyPath, "install", "--platform", plat)
+		cmd := exec.Command(graphifyPath, "install", "--platform", platName)
 		out, err := cmd.CombinedOutput()
 		msg := strings.TrimSpace(string(out))
 		if err != nil {
-			ctx.Logger.Warn("graphify platform install failed", "platform", plat, "error", err, "out", msg)
-			fmt.Printf("Warning: graphify --platform %s: %v\n", plat, err)
+			ctx.Logger.Warn("graphify platform install failed", "platform", platName, "error", err, "out", msg)
+			fmt.Printf("Warning: graphify --platform %s: %v\n", platName, err)
 			continue
 		}
-		fmt.Printf("✓ graphify platform: %s\n", plat)
+		fmt.Printf("✓ graphify platform: %s\n", platName)
 		if msg != "" {
-			ctx.Logger.Info("graphify install", "platform", plat, "out", msg)
+			ctx.Logger.Info("graphify install", "platform", platName, "out", msg)
 		}
 	}
 }

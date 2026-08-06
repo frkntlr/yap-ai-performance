@@ -50,57 +50,78 @@ func Step5Config(p *detector.Platform, ctx *context.RunContext) error {
 		}
 	}
 
-	// 2. Determine configuration paths to update
-	// Cursor native MCP (~/.cursor/mcp.json) is always created — required for Cursor Agent.
-	var configs []string
-	if p.OS == "windows" {
-		appdata := os.Getenv("APPDATA")
-		localappdata := os.Getenv("LOCALAPPDATA")
-		configs = []string{
-			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
-			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
-			filepath.Join(appdata, "Claude", "claude_desktop_config.json"),
-			filepath.Join(appdata, "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(localappdata, "Programs", "cursor", "resources", "app", "extensions", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-		}
-	} else {
-		configs = []string{
-			filepath.Join(p.HomeDir, ".gemini", "config", "mcp_config.json"),
-			filepath.Join(p.HomeDir, ".cursor", "mcp.json"),
-			filepath.Join(p.HomeDir, ".config", "Cursor", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(p.HomeDir, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			filepath.Join(p.HomeDir, ".config", "Claude", "claude_desktop_config.json"),
-		}
+	// 2. MCP configs (Cursor, Gemini/Antigravity, Claude Code, optional Desktop/Cline, project scopes)
+	projectRoot := detectProjectRoot()
+	desired := map[string]jsonutil.MCPServer{
+		"CodeGraphContext": {Command: yapDestPath, Args: []string{"proxy", "cgc"}},
+		"Graphify":         {Command: yapDestPath, Args: []string{"proxy", "graphify"}},
 	}
 
-	for _, cfgPath := range configs {
-		shouldCreate := strings.Contains(cfgPath, "gemini") ||
-			strings.HasSuffix(filepath.ToSlash(cfgPath), ".cursor/mcp.json")
-
-		// If config doesn't exist and it's not a required target, skip
-		if _, err := os.Stat(cfgPath); os.IsNotExist(err) && !shouldCreate {
+	for _, t := range mcpTargets(p, projectRoot) {
+		if t.Path == "" || t.Path == "." {
+			continue
+		}
+		if _, err := os.Stat(t.Path); os.IsNotExist(err) && !t.AlwaysCreate {
 			continue
 		}
 
-		fmt.Printf("Updating MCP config: %s\n", cfgPath)
-		ctx.Logger.Info("Updating MCP config", "path", cfgPath)
+		fmt.Printf("Updating MCP config (%s): %s\n", t.Label, t.Path)
+		ctx.Logger.Info("Updating MCP config", "label", t.Label, "path", t.Path)
 
-		cfg, err := jsonutil.ReadOrCreate(cfgPath)
+		if t.MergeOnly {
+			existing, err := jsonutil.ReadMCPServersFromFile(t.Path)
+			if err != nil {
+				fmt.Printf("Warning: failed to read %s: %v\n", t.Path, err)
+				ctx.Logger.Warn("Failed to read merge MCP file", "path", t.Path, "error", err)
+				continue
+			}
+			var keysToOverwrite []string
+			for name, want := range desired {
+				if existingSrv, ok := existing[name]; ok && !mcpServerEqual(existingSrv, want) {
+					keysToOverwrite = append(keysToOverwrite, name)
+				}
+			}
+			if len(keysToOverwrite) > 0 && !ctx.DryRun {
+				promptMsg := fmt.Sprintf("Mevcut %s ayarları ezilecek (%s). Devam etmek istiyor musunuz?", strings.Join(keysToOverwrite, " ve "), t.Label)
+				approved, err := confirm.AskYesNo(promptMsg)
+				if err != nil {
+					return fmt.Errorf("onay alınırken hata oluştu: %w", err)
+				}
+				if !approved {
+					fmt.Println("İşlem kullanıcı tarafından iptal edildi.")
+					continue
+				}
+			}
+			if !ctx.DryRun {
+				if _, err := os.Stat(t.Path); err == nil {
+					_ = ctx.Backup.Backup(t.Path)
+				}
+			}
+			if err := jsonutil.MergeMCPServers(ctx.DryRun, t.Path, desired); err != nil {
+				fmt.Printf("Warning: failed to merge MCP into %s: %v\n", t.Path, err)
+				ctx.Logger.Warn("Failed to merge MCP servers", "path", t.Path, "error", err)
+				continue
+			}
+			if ctx.DryRun {
+				ctx.Logger.Info("MCP merge simulated", "path", t.Path)
+			} else {
+				fmt.Printf("✓ Successfully updated: %s\n", t.Path)
+			}
+			continue
+		}
+
+		cfg, err := jsonutil.ReadOrCreate(t.Path)
 		if err != nil {
-			fmt.Printf("Warning: failed to read config %s: %v\n", cfgPath, err)
-			ctx.Logger.Warn("Failed to read/create config file", "path", cfgPath, "error", err)
+			fmt.Printf("Warning: failed to read config %s: %v\n", t.Path, err)
+			ctx.Logger.Warn("Failed to read/create config file", "path", t.Path, "error", err)
 			continue
 		}
-
-		// Check if we are overwriting existing keys with different values
-		desiredCGC := jsonutil.MCPServer{Command: yapDestPath, Args: []string{"proxy", "cgc"}}
-		desiredGraphify := jsonutil.MCPServer{Command: yapDestPath, Args: []string{"proxy", "graphify"}}
 
 		var keysToOverwrite []string
-		if existing, exists := cfg.MCPServers["CodeGraphContext"]; exists && !mcpServerEqual(existing, desiredCGC) {
+		if existing, exists := cfg.MCPServers["CodeGraphContext"]; exists && !mcpServerEqual(existing, desired["CodeGraphContext"]) {
 			keysToOverwrite = append(keysToOverwrite, "CodeGraphContext")
 		}
-		if existing, exists := cfg.MCPServers["Graphify"]; exists && !mcpServerEqual(existing, desiredGraphify) {
+		if existing, exists := cfg.MCPServers["Graphify"]; exists && !mcpServerEqual(existing, desired["Graphify"]) {
 			keysToOverwrite = append(keysToOverwrite, "Graphify")
 		}
 
@@ -113,41 +134,36 @@ func Step5Config(p *detector.Platform, ctx *context.RunContext) error {
 			}
 			if !approved {
 				fmt.Println("İşlem kullanıcı tarafından iptal edildi.")
-				ctx.Logger.Info("Config update cancelled by user", "path", cfgPath)
+				ctx.Logger.Info("Config update cancelled by user", "path", t.Path)
 				continue
 			}
 		}
 
-		cfg.MCPServers["CodeGraphContext"] = desiredCGC
-		cfg.MCPServers["Graphify"] = desiredGraphify
+		cfg.MCPServers["CodeGraphContext"] = desired["CodeGraphContext"]
+		cfg.MCPServers["Graphify"] = desired["Graphify"]
 
-		// Backup before writing (only if not dry-running and file exists)
 		if !ctx.DryRun {
-			if _, err := os.Stat(cfgPath); err == nil {
-				if err := ctx.Backup.Backup(cfgPath); err != nil {
-					ctx.Logger.Warn("Yedekleme başarısız, devam ediliyor...", "path", cfgPath, "error", err)
-					fmt.Printf("Warning: yedekleme başarısız (%s): %v\n", cfgPath, err)
-				} else {
-					ctx.Logger.Info("Backup created successfully", "path", cfgPath)
+			if _, err := os.Stat(t.Path); err == nil {
+				if err := ctx.Backup.Backup(t.Path); err != nil {
+					ctx.Logger.Warn("Yedekleme başarısız, devam ediliyor...", "path", t.Path, "error", err)
+					fmt.Printf("Warning: yedekleme başarısız (%s): %v\n", t.Path, err)
 				}
 			}
 		}
 
-		if err := jsonutil.Write(ctx.DryRun, cfgPath, cfg); err != nil {
-			fmt.Printf("Warning: failed to write config %s: %v\n", cfgPath, err)
-			ctx.Logger.Warn("Failed to write config file", "path", cfgPath, "error", err)
+		if err := jsonutil.Write(ctx.DryRun, t.Path, cfg); err != nil {
+			fmt.Printf("Warning: failed to write config %s: %v\n", t.Path, err)
+			ctx.Logger.Warn("Failed to write config file", "path", t.Path, "error", err)
+		} else if ctx.DryRun {
+			ctx.Logger.Info("Config write simulated", "path", t.Path)
 		} else {
-			if ctx.DryRun {
-				ctx.Logger.Info("Config write simulated", "path", cfgPath)
-			} else {
-				fmt.Printf("✓ Successfully updated: %s\n", cfgPath)
-				ctx.Logger.Info("Config updated successfully", "path", cfgPath)
-			}
+			fmt.Printf("✓ Successfully updated: %s\n", t.Path)
+			ctx.Logger.Info("Config updated successfully", "path", t.Path)
 		}
 	}
 
-	// 3. Update Zed config
-	if err := updateZedConfig(p, ctx, yapDestPath); err != nil {
+	// 3. Zed context_servers (create global if missing; also update project .zed if present)
+	if err := ensureZedConfigs(p, ctx, yapDestPath, projectRoot); err != nil {
 		fmt.Printf("Warning: failed to update Zed config: %v\n", err)
 		ctx.Logger.Warn("Failed to update Zed config", "error", err)
 	}
@@ -199,34 +215,50 @@ func mcpServerEqual(a, b jsonutil.MCPServer) bool {
 	return true
 }
 
-func updateZedConfig(p *detector.Platform, ctx *context.RunContext, yapDestPath string) error {
-	var zedConfigPath string
+func ensureZedConfigs(p *detector.Platform, ctx *context.RunContext, yapDestPath, projectRoot string) error {
+	var globalPath string
 	if p.OS == "windows" {
-		appdata := os.Getenv("APPDATA")
-		zedConfigPath = filepath.Join(appdata, "Zed", "settings.json")
+		globalPath = filepath.Join(os.Getenv("APPDATA"), "Zed", "settings.json")
 	} else {
-		zedConfigPath = filepath.Join(p.HomeDir, ".config", "zed", "settings.json")
+		globalPath = filepath.Join(p.HomeDir, ".config", "zed", "settings.json")
 	}
+	if err := updateZedConfigAt(ctx, globalPath, yapDestPath, true); err != nil {
+		return err
+	}
+	if projectRoot != "" {
+		projPath := filepath.Join(projectRoot, ".zed", "settings.json")
+		// Update project Zed settings if the file already exists (or create for parity).
+		if err := updateZedConfigAt(ctx, projPath, yapDestPath, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	if _, err := os.Stat(zedConfigPath); os.IsNotExist(err) {
+func updateZedConfigAt(ctx *context.RunContext, zedConfigPath, yapDestPath string, createIfMissing bool) error {
+	_, err := os.Stat(zedConfigPath)
+	missing := os.IsNotExist(err)
+	if missing && !createIfMissing {
 		return nil
+	}
+	if err != nil && !missing {
+		return err
 	}
 
 	fmt.Printf("Updating Zed config: %s\n", zedConfigPath)
 	ctx.Logger.Info("Updating Zed config", "path", zedConfigPath)
 
-	data, err := ioutil.ReadFile(zedConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to read Zed config: %w", err)
-	}
-
-	var settings map[string]interface{}
-	if len(data) == 0 {
-		settings = make(map[string]interface{})
-	} else {
-		cleanData := stripTrailingCommasAndComments(data)
-		if err := json.Unmarshal(cleanData, &settings); err != nil {
-			return fmt.Errorf("failed to parse Zed config: %w", err)
+	settings := make(map[string]interface{})
+	if !missing {
+		data, err := ioutil.ReadFile(zedConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to read Zed config: %w", err)
+		}
+		if len(data) > 0 {
+			cleanData := stripTrailingCommasAndComments(data)
+			if err := json.Unmarshal(cleanData, &settings); err != nil {
+				return fmt.Errorf("failed to parse Zed config: %w", err)
+			}
 		}
 	}
 
@@ -275,21 +307,16 @@ func updateZedConfig(p *detector.Platform, ctx *context.RunContext, yapDestPath 
 		"command": yapDestPath,
 		"args":    []string{"proxy", "graphify"},
 	}
-
 	settings["context_servers"] = contextServers
 
-	if !ctx.DryRun {
+	if !ctx.DryRun && !missing {
 		if err := ctx.Backup.Backup(zedConfigPath); err != nil {
 			ctx.Logger.Warn("Zed yedekleme başarısız, devam ediliyor...", "path", zedConfigPath, "error", err)
-			fmt.Printf("Warning: Zed yedekleme başarısız (%s): %v\n", zedConfigPath, err)
-		} else {
-			ctx.Logger.Info("Zed backup created successfully", "path", zedConfigPath)
 		}
 	}
 
 	if ctx.DryRun {
 		dryrun.PrintSimulation(fmt.Sprintf("%s güncellenecek (Zed)", zedConfigPath))
-		ctx.Logger.Info("Zed config write simulated", "path", zedConfigPath)
 		return nil
 	}
 
@@ -297,16 +324,12 @@ func updateZedConfig(p *detector.Platform, ctx *context.RunContext, yapDestPath 
 	if err != nil {
 		return fmt.Errorf("failed to marshal Zed config: %w", err)
 	}
-
-	dir := filepath.Dir(zedConfigPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(zedConfigPath), 0755); err != nil {
 		return fmt.Errorf("failed to create Zed config directory: %w", err)
 	}
-
 	if err := ioutil.WriteFile(zedConfigPath, newData, 0644); err != nil {
 		return fmt.Errorf("failed to write Zed config: %w", err)
 	}
-
 	fmt.Printf("✓ Successfully updated Zed config: %s\n", zedConfigPath)
 	ctx.Logger.Info("Zed config updated successfully", "path", zedConfigPath)
 	return nil
@@ -431,5 +454,3 @@ func stripTrailingCommasAndComments(data []byte) []byte {
 
 	return clean
 }
-
-
